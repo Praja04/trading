@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MT5 Trading Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h2 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .stat:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .positive {
+            color: #10b981;
+        }
+        
+        .negative {
+            color: #ef4444;
+        }
+        
+        .position {
+            background: #f8fafc;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .position.buy {
+            border-left-color: #10b981;
+        }
+        
+        .position.sell {
+            border-left-color: #ef4444;
+        }
+        
+        .trade {
+            padding: 10px;
+            margin: 8px 0;
+            background: #f8fafc;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .badge.buy {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .badge.sell {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+        
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+            margin: 20px auto;
+            display: block;
+        }
+        
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+            font-style: italic;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 MT5 Trading Dashboard</h1>
+        
+        <button class="refresh-btn" onclick="refreshAll()">🔄 Refresh Data</button>
+        
+        <!-- Account Info -->
+        <div class="grid">
+            <div class="card" id="account-card">
+                <h2>💰 Account Information</h2>
+                <div id="account-info">
+                    <div class="loading">Loading account data...</div>
+                </div>
+            </div>
+            
+            <div class="card" id="stats-card">
+                <h2>📈 Trading Statistics</h2>
+                <div id="stats-info">
+                    <div class="loading">Loading statistics...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Open Positions -->
+        <div class="card">
+            <h2>📍 Open Positions</h2>
+            <div id="positions-list">
+                <div class="loading">Loading positions...</div>
+            </div>
+        </div>
+        
+        <!-- Price Chart -->
+        <div class="chart-container">
+            <h2 style="color: #667eea; margin-bottom: 20px;">📉 Price Chart (EURUSD.s)</h2>
+            <canvas id="priceChart"></canvas>
+        </div>
+        
+        <!-- Recent Trades -->
+        <div class="card">
+            <h2>📋 Recent Trades (Today)</h2>
+            <div id="trades-list">
+                <div class="loading">Loading trades...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let priceChart = null;
+        
+        function formatCurrency(value) {
+            return '$' + parseFloat(value).toFixed(2);
+        }
+        
+        function formatPercent(value) {
+            return parseFloat(value).toFixed(2) + '%';
+        }
+        
+        async function loadAccountInfo() {
+            try {
+                const response = await fetch('/api/account');
+                const data = await response.json();
+                
+                if (!data || Object.keys(data).length === 0) {
+                    document.getElementById('account-info').innerHTML = '<div class="no-data">No account data available</div>';
+                    return;
+                }
+                
+                const profitClass = data.profit >= 0 ? 'positive' : 'negative';
+                
+                document.getElementById('account-info').innerHTML = `
+                    <div class="stat">
+                        <span class="stat-label">Balance:</span>
+                        <span class="stat-value">${formatCurrency(data.balance)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Equity:</span>
+                        <span class="stat-value">${formatCurrency(data.equity)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Margin:</span>
+                        <span class="stat-value">${formatCurrency(data.margin)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Free Margin:</span>
+                        <span class="stat-value">${formatCurrency(data.free_margin)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Profit:</span>
+                        <span class="stat-value ${profitClass}">${formatCurrency(data.profit)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Leverage:</span>
+                        <span class="stat-value">1:${data.leverage}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error loading account info:', error);
+                document.getElementById('account-info').innerHTML = '<div class="no-data">Error loading data</div>';
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                const profitClass = data.net_profit >= 0 ? 'positive' : 'negative';
+                
+                document.getElementById('stats-info').innerHTML = `
+                    <div class="stat">
+                        <span class="stat-label">Total Trades:</span>
+                        <span class="stat-value">${data.total_trades}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Winning Trades:</span>
+                        <span class="stat-value positive">${data.winning_trades}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Losing Trades:</span>
+                        <span class="stat-value negative">${data.losing_trades}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Win Rate:</span>
+                        <span class="stat-value">${formatPercent(data.win_rate)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Net Profit:</span>
+                        <span class="stat-value ${profitClass}">${formatCurrency(data.net_profit)}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                document.getElementById('stats-info').innerHTML = '<div class="no-data">Error loading data</div>';
+            }
+        }
+        
+        async function loadPositions() {
+            try {
+                const response = await fetch('/api/positions');
+                const positions = await response.json();
+                
+                if (positions.length === 0) {
+                    document.getElementById('positions-list').innerHTML = '<div class="no-data">No open positions</div>';
+                    return;
+                }
+                
+                let html = '';
+                positions.forEach(pos => {
+                    const profitClass = pos.profit >= 0 ? 'positive' : 'negative';
+                    const typeClass = pos.type.toLowerCase();
+                    
+                    html += `
+                        <div class="position ${typeClass}">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                                <strong>${pos.symbol}</strong>
+                                <span class="badge ${typeClass}">${pos.type}</span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                                <div>Volume: ${pos.volume}</div>
+                                <div>Ticket: #${pos.ticket}</div>
+                                <div>Open: ${pos.open_price.toFixed(5)}</div>
+                                <div>Current: ${pos.current_price.toFixed(5)}</div>
+                                <div>SL: ${pos.sl.toFixed(5)}</div>
+                                <div>TP: ${pos.tp.toFixed(5)}</div>
+                                <div>Time: ${pos.open_time}</div>
+                                <div class="${profitClass}"><strong>P/L: ${formatCurrency(pos.profit)}</strong></div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('positions-list').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading positions:', error);
+                document.getElementById('positions-list').innerHTML = '<div class="no-data">Error loading data</div>';
+            }
+        }
+        
+        async function loadTrades() {
+            try {
+                const response = await fetch('/api/trades');
+                const trades = await response.json();
+                
+                if (trades.length === 0) {
+                    document.getElementById('trades-list').innerHTML = '<div class="no-data">No trades today</div>';
+                    return;
+                }
+                
+                let html = '';
+                trades.forEach(trade => {
+                    const profitClass = trade.profit >= 0 ? 'positive' : 'negative';
+                    const typeClass = trade.type.toLowerCase();
+                    
+                    html += `
+                        <div class="trade">
+                            <div>
+                                <span class="badge ${typeClass}">${trade.type}</span>
+                                <strong>${trade.symbol}</strong>
+                                <span style="color: #999; font-size: 0.9em;">#${trade.ticket}</span>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="${profitClass}" style="font-weight: bold;">${formatCurrency(trade.profit)}</div>
+                                <div style="font-size: 0.85em; color: #999;">${trade.time}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('trades-list').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading trades:', error);
+                document.getElementById('trades-list').innerHTML = '<div class="no-data">Error loading data</div>';
+            }
+        }
+        
+        async function loadChart() {
+            try {
+                const response = await fetch('/api/ohlc/EURUSD.s');
+                const data = await response.json();
+                
+                if (data.length === 0) return;
+                
+                const labels = data.reverse().map(d => new Date(d.timestamp).toLocaleTimeString());
+                const prices = data.map(d => d.close);
+                
+                const ctx = document.getElementById('priceChart').getContext('2d');
+                
+                if (priceChart) {
+                    priceChart.destroy();
+                }
+                
+                priceChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Close Price',
+                            data: prices,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading chart:', error);
+            }
+        }
+        
+        function refreshAll() {
+            loadAccountInfo();
+            loadStats();
+            loadPositions();
+            loadTrades();
+            loadChart();
+        }
+        
+        // Initial load
+        refreshAll();
+        
+        // Auto-refresh every 5 seconds
+        setInterval(refreshAll, 5000);
+    </script>
+</body>
+</html>

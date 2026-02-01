@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MT5 Trading Dashboard</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            min-height: 100vh;
+        }
+        
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .glass-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+            border-color: rgba(148, 163, 184, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .pulse-glow {
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .ticker-item {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .price-flash-green {
+            animation: flashGreen 0.5s ease;
+        }
+        
+        .price-flash-red {
+            animation: flashRed 0.5s ease;
+        }
+        
+        @keyframes flashGreen {
+            0%, 100% { background-color: transparent; }
+            50% { background-color: rgba(34, 197, 94, 0.2); }
+        }
+        
+        @keyframes flashRed {
+            0%, 100% { background-color: transparent; }
+            50% { background-color: rgba(239, 68, 68, 0.2); }
+        }
+        
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 10px;
+        }
+        
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 10px;
+        }
+        
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+            background: rgba(148, 163, 184, 0.5);
+        }
+    </style>
+</head>
+<body class="p-4 overflow-x-hidden">
+    
+    <!-- Header -->
+    <div class="max-w-[1920px] mx-auto mb-6 fade-in">
+        <div class="glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-chart-line text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-3xl font-bold gradient-text">MT5 Trading Dashboard</h1>
+                        <p class="text-slate-400 text-sm mt-1">Real-time Trading Monitor</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="text-right">
+                        <div class="text-slate-400 text-sm">Last Update</div>
+                        <div id="last-update" class="text-white font-semibold">--:--:--</div>
+                    </div>
+                    <button onclick="refreshAll()" class="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-[1920px] mx-auto">
+        
+        <!-- Account Stats - Row 1 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            
+            <!-- Balance Card -->
+            <div class="glass-card rounded-2xl p-6 fade-in">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-slate-400 text-sm font-medium">Balance</div>
+                    <div class="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-wallet text-blue-400"></i>
+                    </div>
+                </div>
+                <div id="balance" class="text-3xl font-bold text-white mb-2">$0.00</div>
+                <div class="text-slate-400 text-xs">Account Balance</div>
+            </div>
+            
+            <!-- Equity Card -->
+            <div class="glass-card rounded-2xl p-6 fade-in">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-slate-400 text-sm font-medium">Equity</div>
+                    <div class="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-coins text-purple-400"></i>
+                    </div>
+                </div>
+                <div id="equity" class="text-3xl font-bold text-white mb-2">$0.00</div>
+                <div class="text-slate-400 text-xs">Current Equity</div>
+            </div>
+            
+            <!-- Profit Card -->
+            <div class="glass-card rounded-2xl p-6 fade-in">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-slate-400 text-sm font-medium">P&L</div>
+                    <div class="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-chart-line text-emerald-400"></i>
+                    </div>
+                </div>
+                <div id="profit" class="text-3xl font-bold text-emerald-400 mb-2">$0.00</div>
+                <div class="text-slate-400 text-xs">Unrealized P&L</div>
+            </div>
+            
+            <!-- Margin Card -->
+            <div class="glass-card rounded-2xl p-6 fade-in">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-slate-400 text-sm font-medium">Free Margin</div>
+                    <div class="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-shield-alt text-amber-400"></i>
+                    </div>
+                </div>
+                <div id="free-margin" class="text-3xl font-bold text-white mb-2">$0.00</div>
+                <div class="text-slate-400 text-xs">Available Margin</div>
+            </div>
+            
+        </div>
+
+        <!-- Trading Stats - Row 2 -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="glass-card rounded-xl p-4 text-center fade-in">
+                <div class="text-2xl font-bold text-white" id="total-trades">0</div>
+                <div class="text-slate-400 text-xs mt-1">Total Trades</div>
+            </div>
+            <div class="glass-card rounded-xl p-4 text-center fade-in">
+                <div class="text-2xl font-bold text-emerald-400" id="winning-trades">0</div>
+                <div class="text-slate-400 text-xs mt-1">Winning</div>
+            </div>
+            <div class="glass-card rounded-xl p-4 text-center fade-in">
+                <div class="text-2xl font-bold text-red-400" id="losing-trades">0</div>
+                <div class="text-slate-400 text-xs mt-1">Losing</div>
+            </div>
+            <div class="glass-card rounded-xl p-4 text-center fade-in">
+                <div class="text-2xl font-bold text-blue-400" id="win-rate">0%</div>
+                <div class="text-slate-400 text-xs mt-1">Win Rate</div>
+            </div>
+            <div class="glass-card rounded-xl p-4 text-center fade-in">
+                <div class="text-2xl font-bold text-purple-400" id="net-profit">$0.00</div>
+                <div class="text-slate-400 text-xs mt-1">Net Profit</div>
+            </div>
+        </div>
+
+        <!-- Main Content - 2 Columns -->
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+            
+            <!-- Left Column - Live Tickers & Chart -->
+            <div class="xl:col-span-2 space-y-6">
+                
+                <!-- Live Price Tickers -->
+                <div class="glass-card rounded-2xl p-6 fade-in">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-bold text-white flex items-center">
+                            <i class="fas fa-signal mr-3 text-blue-400"></i>
+                            Live Market Data
+                        </h2>
+                        <div class="pulse-glow w-3 h-3 bg-emerald-400 rounded-full"></div>
+                    </div>
+                    
+                    <div id="live-tickers" class="space-y-3">
+                        <!-- Tickers will be inserted here -->
+                    </div>
+                </div>
+                
+                <!-- Price Chart -->
+                <div class="glass-card rounded-2xl p-6 fade-in">
+                    <h2 class="text-xl font-bold text-white mb-4 flex items-center">
+                        <i class="fas fa-chart-area mr-3 text-purple-400"></i>
+                        Price Chart
+                    </h2>
+                    <canvas id="priceChart" height="80"></canvas>
+                </div>
+                
+            </div>
+            
+            <!-- Right Column - Open Positions -->
+            <div class="space-y-6">
+                
+                <!-- Open Positions -->
+                <div class="glass-card rounded-2xl p-6 fade-in">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-bold text-white flex items-center">
+                            <i class="fas fa-briefcase mr-3 text-emerald-400"></i>
+                            Open Positions
+                        </h2>
+                        <div id="positions-count" class="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg text-sm font-semibold">0</div>
+                    </div>
+                    
+                    <div id="positions-list" class="space-y-3 max-h-[500px] overflow-y-auto scrollbar-thin">
+                        <!-- Positions will be inserted here -->
+                    </div>
+                </div>
+                
+            </div>
+            
+        </div>
+
+        <!-- Recent Trades - Full Width -->
+        <div class="glass-card rounded-2xl p-6 fade-in mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-white flex items-center">
+                    <i class="fas fa-history mr-3 text-amber-400"></i>
+                    Recent Trades (Today)
+                </h2>
+                <div id="trades-count" class="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-lg text-sm font-semibold">0 trades</div>
+            </div>
+            
+            <div id="trades-list" class="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin">
+                <!-- Trades will be inserted here -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let priceChart = null;
+        let previousPrices = {};
+        
+        function formatCurrency(value) {
+            return '$' + parseFloat(value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+        
+        function formatPercent(value) {
+            return parseFloat(value).toFixed(2) + '%';
+        }
+        
+        function formatPrice(value, decimals = 5) {
+            return parseFloat(value).toFixed(decimals);
+        }
+        
+        function updateLastUpdate() {
+            const now = new Date();
+            document.getElementById('last-update').textContent = now.toLocaleTimeString();
+        }
+        
+        async function loadAccountInfo() {
+            try {
+                const response = await fetch('/api/account');
+                const data = await response.json();
+                
+                if (!data || Object.keys(data).length === 0) return;
+                
+                const profitClass = data.profit >= 0 ? 'text-emerald-400' : 'text-red-400';
+                
+                document.getElementById('balance').textContent = formatCurrency(data.balance);
+                document.getElementById('equity').textContent = formatCurrency(data.equity);
+                document.getElementById('profit').textContent = formatCurrency(data.profit);
+                document.getElementById('profit').className = `text-3xl font-bold ${profitClass} mb-2`;
+                document.getElementById('free-margin').textContent = formatCurrency(data.free_margin);
+                
+            } catch (error) {
+                console.error('Error loading account info:', error);
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                const profitClass = data.net_profit >= 0 ? 'text-emerald-400' : 'text-red-400';
+                
+                document.getElementById('total-trades').textContent = data.total_trades;
+                document.getElementById('winning-trades').textContent = data.winning_trades;
+                document.getElementById('losing-trades').textContent = data.losing_trades;
+                document.getElementById('win-rate').textContent = formatPercent(data.win_rate);
+                document.getElementById('net-profit').textContent = formatCurrency(data.net_profit);
+                document.getElementById('net-profit').className = `text-2xl font-bold ${profitClass}`;
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+        
+        async function loadLiveTickers() {
+            try {
+                const symbols = ['EURUSD.s', 'GBPUSD.s', 'USDJPY.s'];
+                let tickersHtml = '';
+                
+                for (const symbol of symbols) {
+                    const tickResponse = await fetch(`/api/ticks/${symbol}`);
+                    const ticks = await tickResponse.json();
+                    
+                    const ohlcResponse = await fetch(`/api/ohlc/${symbol}`);
+                    const ohlc = await ohlcResponse.json();
+                    
+                    if (ticks.length > 0 && ohlc.length > 0) {
+                        const latestTick = ticks[0];
+                        const latestOhlc = ohlc[0];
+                        
+                        const decimals = symbol.includes('JPY') ? 3 : 5;
+                        
+                        // Price change detection
+                        let priceChangeClass = '';
+                        if (previousPrices[symbol]) {
+                            if (latestTick.bid > previousPrices[symbol]) {
+                                priceChangeClass = 'price-flash-green';
+                            } else if (latestTick.bid < previousPrices[symbol]) {
+                                priceChangeClass = 'price-flash-red';
+                            }
+                        }
+                        previousPrices[symbol] = latestTick.bid;
+                        
+                        const change = ((latestOhlc.close - latestOhlc.open) / latestOhlc.open * 100).toFixed(2);
+                        const changeColor = change >= 0 ? 'text-emerald-400' : 'text-red-400';
+                        const changeIcon = change >= 0 ? 'fa-arrow-up' : 'fa-arrow-down';
+                        
+                        tickersHtml += `
+                            <div class="ticker-item bg-slate-800/50 rounded-xl p-4 border border-slate-700/50 ${priceChangeClass}">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center font-bold text-white text-sm">
+                                            ${symbol.substring(0, 3)}
+                                        </div>
+                                        <div>
+                                            <div class="text-white font-bold">${symbol}</div>
+                                            <div class="text-slate-400 text-xs">${new Date(latestTick.timestamp).toLocaleTimeString()}</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="${changeColor} font-bold flex items-center justify-end">
+                                            <i class="fas ${changeIcon} text-xs mr-1"></i>
+                                            ${Math.abs(change)}%
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div class="bg-emerald-500/10 rounded-lg p-2 border border-emerald-500/20">
+                                        <div class="text-slate-400 text-xs mb-1">BID</div>
+                                        <div class="text-emerald-400 font-bold text-lg">${formatPrice(latestTick.bid, decimals)}</div>
+                                    </div>
+                                    <div class="bg-red-500/10 rounded-lg p-2 border border-red-500/20">
+                                        <div class="text-slate-400 text-xs mb-1">ASK</div>
+                                        <div class="text-red-400 font-bold text-lg">${formatPrice(latestTick.ask, decimals)}</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="grid grid-cols-5 gap-2 text-xs">
+                                    <div>
+                                        <div class="text-slate-500">OPEN</div>
+                                        <div class="text-white font-semibold">${formatPrice(latestOhlc.open, decimals)}</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-slate-500">HIGH</div>
+                                        <div class="text-emerald-400 font-semibold">${formatPrice(latestOhlc.high, decimals)}</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-slate-500">LOW</div>
+                                        <div class="text-red-400 font-semibold">${formatPrice(latestOhlc.low, decimals)}</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-slate-500">CLOSE</div>
+                                        <div class="text-white font-semibold">${formatPrice(latestOhlc.close, decimals)}</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-slate-500">SPREAD</div>
+                                        <div class="text-blue-400 font-semibold">${formatPrice(latestTick.spread, decimals)}</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-3 pt-3 border-t border-slate-700/50 flex items-center justify-between text-xs">
+                                    <div class="text-slate-400">Volume: <span class="text-white font-semibold">${latestTick.volume.toLocaleString()}</span></div>
+                                    <div class="text-slate-400">OHLC Vol: <span class="text-white font-semibold">${latestOhlc.volume.toLocaleString()}</span></div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                document.getElementById('live-tickers').innerHTML = tickersHtml || '<div class="text-center text-slate-400 py-8">No market data available</div>';
+                
+            } catch (error) {
+                console.error('Error loading live tickers:', error);
+            }
+        }
+        
+        async function loadPositions() {
+            try {
+                const response = await fetch('/api/positions');
+                const positions = await response.json();
+                
+                document.getElementById('positions-count').textContent = positions.length;
+                
+                if (positions.length === 0) {
+                    document.getElementById('positions-list').innerHTML = `
+                        <div class="text-center py-12">
+                            <i class="fas fa-inbox text-slate-600 text-4xl mb-3"></i>
+                            <div class="text-slate-400">No open positions</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                positions.forEach(pos => {
+                    const profitClass = pos.profit >= 0 ? 'text-emerald-400' : 'text-red-400';
+                    const bgClass = pos.profit >= 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30';
+                    const typeClass = pos.type === 'BUY' ? 'bg-emerald-500' : 'bg-red-500';
+                    
+                    const decimals = pos.symbol.includes('JPY') ? 3 : 5;
+                    const pips = pos.type === 'BUY' 
+                        ? (pos.current_price - pos.open_price) * (pos.symbol.includes('JPY') ? 100 : 10000)
+                        : (pos.open_price - pos.current_price) * (pos.symbol.includes('JPY') ? 100 : 10000);
+                    
+                    html += `
+                        <div class="bg-slate-800/50 rounded-xl p-4 border ${bgClass} transition-all duration-300 hover:scale-[1.02]">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center space-x-2">
+                                    <span class="${typeClass} text-white text-xs font-bold px-2 py-1 rounded">${pos.type}</span>
+                                    <span class="text-white font-bold">${pos.symbol}</span>
+                                </div>
+                                <div class="${profitClass} font-bold text-lg">${formatCurrency(pos.profit)}</div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-2 text-xs mb-2">
+                                <div>
+                                    <div class="text-slate-500">Vol</div>
+                                    <div class="text-white font-semibold">${pos.volume}</div>
+                                </div>
+                                <div>
+                                    <div class="text-slate-500">Pips</div>
+                                    <div class="${profitClass} font-semibold">${pips >= 0 ? '+' : ''}${pips.toFixed(1)}</div>
+                                </div>
+                                <div>
+                                    <div class="text-slate-500">Open</div>
+                                    <div class="text-white font-semibold">${formatPrice(pos.open_price, decimals)}</div>
+                                </div>
+                                <div>
+                                    <div class="text-slate-500">Current</div>
+                                    <div class="text-blue-400 font-semibold">${formatPrice(pos.current_price, decimals)}</div>
+                                </div>
+                                <div>
+                                    <div class="text-slate-500">SL</div>
+                                    <div class="text-red-400 font-semibold">${formatPrice(pos.sl, decimals)}</div>
+                                </div>
+                                <div>
+                                    <div class="text-slate-500">TP</div>
+                                    <div class="text-emerald-400 font-semibold">${formatPrice(pos.tp, decimals)}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="pt-2 border-t border-slate-700/50 flex items-center justify-between text-xs">
+                                <div class="text-slate-400">Ticket: #${pos.ticket}</div>
+                                <div class="text-slate-400">${pos.open_time}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('positions-list').innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading positions:', error);
+            }
+        }
+        
+        async function loadTrades() {
+            try {
+                const response = await fetch('/api/trades');
+                const trades = await response.json();
+                
+                document.getElementById('trades-count').textContent = `${trades.length} trades`;
+                
+                if (trades.length === 0) {
+                    document.getElementById('trades-list').innerHTML = `
+                        <div class="text-center py-12">
+                            <i class="fas fa-chart-line text-slate-600 text-4xl mb-3"></i>
+                            <div class="text-slate-400">No trades today</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                trades.forEach(trade => {
+                    const profitClass = trade.profit >= 0 ? 'text-emerald-400' : 'text-red-400';
+                    const bgClass = trade.profit >= 0 ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20';
+                    const typeClass = trade.type === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400';
+                    const icon = trade.profit >= 0 ? 'fa-check-circle' : 'fa-times-circle';
+                    
+                    html += `
+                        <div class="bg-slate-800/30 rounded-lg p-3 border ${bgClass} flex items-center justify-between hover:bg-slate-800/50 transition-all duration-300">
+                            <div class="flex items-center space-x-3">
+                                <i class="fas ${icon} ${profitClass} text-xl"></i>
+                                <div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="${typeClass} text-xs font-bold px-2 py-1 rounded">${trade.type}</span>
+                                        <span class="text-white font-semibold">${trade.symbol}</span>
+                                        <span class="text-slate-500 text-xs">Vol: ${trade.volume}</span>
+                                    </div>
+                                    <div class="text-slate-400 text-xs mt-1">
+                                        ${trade.time} • Price: ${formatPrice(trade.price, trade.symbol.includes('JPY') ? 3 : 5)} • #${trade.ticket}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="${profitClass} font-bold text-lg">${formatCurrency(trade.profit)}</div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('trades-list').innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading trades:', error);
+            }
+        }
+        
+        async function loadChart() {
+            try {
+                const response = await fetch('/api/ohlc/EURUSD.s');
+                const data = await response.json();
+                
+                if (data.length === 0) return;
+                
+                const reversed = data.reverse();
+                const labels = reversed.map(d => new Date(d.timestamp).toLocaleTimeString());
+                const closes = reversed.map(d => d.close);
+                const highs = reversed.map(d => d.high);
+                const lows = reversed.map(d => d.low);
+                
+                const ctx = document.getElementById('priceChart').getContext('2d');
+                
+                if (priceChart) {
+                    priceChart.destroy();
+                }
+                
+                const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, 'rgba(96, 165, 250, 0.3)');
+                gradient.addColorStop(1, 'rgba(96, 165, 250, 0.01)');
+                
+                priceChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Close Price',
+                                data: closes,
+                                borderColor: '#60a5fa',
+                                backgroundColor: gradient,
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 0,
+                                pointHoverRadius: 6,
+                                pointHoverBackgroundColor: '#60a5fa',
+                                pointHoverBorderColor: '#fff',
+                                pointHoverBorderWidth: 2
+                            },
+                            {
+                                label: 'High',
+                                data: highs,
+                                borderColor: '#34d399',
+                                backgroundColor: 'transparent',
+                                borderWidth: 1,
+                                borderDash: [5, 5],
+                                tension: 0.4,
+                                fill: false,
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Low',
+                                data: lows,
+                                borderColor: '#ef4444',
+                                backgroundColor: 'transparent',
+                                borderWidth: 1,
+                                borderDash: [5, 5],
+                                tension: 0.4,
+                                fill: false,
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#94a3b8',
+                                    font: {
+                                        size: 12
+                                    },
+                                    usePointStyle: true,
+                                    padding: 20
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                                titleColor: '#fff',
+                                bodyColor: '#94a3b8',
+                                borderColor: 'rgba(148, 163, 184, 0.2)',
+                                borderWidth: 1,
+                                padding: 12,
+                                displayColors: true,
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y.toFixed(5);
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: {
+                                    color: 'rgba(148, 163, 184, 0.1)',
+                                    drawBorder: false
+                                },
+                                ticks: {
+                                    color: '#64748b',
+                                    maxTicksLimit: 10,
+                                    font: {
+                                        size: 11
+                                    }
+                                }
+                            },
+                            y: {
+                                position: 'right',
+                                grid: {
+                                    color: 'rgba(148, 163, 184, 0.1)',
+                                    drawBorder: false
+                                },
+                                ticks: {
+                                    color: '#64748b',
+                                    callback: function(value) {
+                                        return value.toFixed(5);
+                                    },
+                                    font: {
+                                        size: 11
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading chart:', error);
+            }
+        }
+        
+        function refreshAll() {
+            updateLastUpdate();
+            loadAccountInfo();
+            loadStats();
+            loadLiveTickers();
+            loadPositions();
+            loadTrades();
+            loadChart();
+        }
+        
+        // Initial load
+        refreshAll();
+        
+        // Auto-refresh every 3 seconds
+        setInterval(refreshAll, 3000);
+        
+        // Update time every second
+        setInterval(updateLastUpdate, 1000);
+    </script>
+</body>
+</html>

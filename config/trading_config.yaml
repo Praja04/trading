@@ -1,0 +1,72 @@
+
+# Trading pairs
+symbols:
+  - "EURUSD.s"
+  - "GBPUSD.s"
+  - "USDJPY.s"
+  # Tambahkan pair lain sesuai kebutuhan
+  # - "AUDUSD"
+  # - "USDCHF"
+  # - "XAUUSD"  # Gold
+
+# Position Management
+lot_size: 0.1  # Lot size per trade (0.01 = 1 micro lot)
+max_positions: 3  # Maximum concurrent positions per symbol
+slippage: 10  # Maximum price slippage in points
+
+# Magic number untuk identifier (unik untuk bot ini)
+magic_number: 234000
+
+# Strategy Settings
+strategy:
+  # Moving Average settings
+  ma_fast: 10  # Fast MA period
+  ma_slow: 30  # Slow MA period
+  
+  # RSI settings
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  
+  # Signal confidence threshold (0-100)
+  min_confidence: 60  # Minimal confidence untuk execute trade
+  
+  # Profit targets (dalam pips)
+  min_profit_pips: 10
+  stop_loss_pips: 20
+  take_profit_pips: 30
+
+# Risk Management
+max_daily_loss: 100  # Maximum daily loss in USD
+max_risk_per_trade: 2  # Maximum risk per trade (% of balance)
+
+# Trailing Stop
+trailing_stop_enabled: true
+trailing_stop_pips: 15  # Trailing stop distance in pips
+
+# Data Collection
+data_directory: "data"
+save_to_csv: true  # Save tick and OHLC data to CSV
+
+# Timeframe
+timeframe: "M1"  # 1-minute candles (M1, M5, M15, M30, H1, H4, D1)
+
+# Trading Hours (Optional - UTC time)
+# Kosongkan jika ingin trading 24/7
+trading_hours:
+  enabled: false
+  start_hour: 0  # 00:00 UTC
+  end_hour: 24   # 24:00 UTC
+  
+# Days of week to trade (0=Monday, 6=Sunday)
+trading_days: [0, 1, 2, 3, 4]  # Monday to Friday
+
+# Logging
+log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Notifications (Future feature)
+notifications:
+  enabled: false
+  email: ""
+  telegram_bot_token: ""
+  telegram_chat_id: ""

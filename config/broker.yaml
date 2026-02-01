@@ -1,0 +1,15 @@
+broker:
+  # Account credentials
+  account: 356000
+  password: "nag#IS5R1"
+  server: "FinexBisnisSolusi-Demo"
+
+  # MT5 Terminal Path
+  terminal_path: "C:\\Program Files\\Finex Bisnis Solusi MT5 Terminal\\terminal64.exe"
+
+  # Connection settings
+  timeout: 60000
+  
+  # Broker-specific settings
+  broker_name: "FinexBisnisSolusi"
+  account_type: "demo"

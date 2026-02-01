@@ -1,0 +1,17 @@
+2026-01-27 01:02:19,743 - trading_bot - INFO - Auto Trading System initialized successfully
+2026-01-27 01:02:22,260 - trading_bot.data_collector - INFO - Successfully connected to MT5
+2026-01-27 01:02:22,261 - trading_bot.data_collector - INFO - Starting data collection for 6 symbols
+2026-01-27 01:02:22,263 - trading_bot.data_collector - INFO - Starting tick collection for EURUSD
+2026-01-27 01:02:22,263 - trading_bot.data_collector - INFO - Starting tick collection for GBPUSD
+2026-01-27 01:02:22,263 - trading_bot.data_collector - INFO - Starting tick collection for USDJPY
+2026-01-27 01:02:22,264 - trading_bot.data_collector - INFO - Starting tick collection for AUDUSD
+2026-01-27 01:02:22,265 - trading_bot.data_collector - INFO - Starting tick collection for USDCAD
+2026-01-27 01:02:22,265 - trading_bot.data_collector - INFO - Starting tick collection for XAUUSD
+2026-01-27 01:02:22,266 - trading_bot.data_collector - INFO - Starting minute aggregation
+2026-01-27 01:02:22,266 - trading_bot.trade_executor - INFO - Trade executor connected to MT5
+2026-01-27 01:02:22,271 - trading_bot - INFO - Auto Trading System started
+2026-01-27 01:03:58,166 - trading_bot.data_collector - INFO - Disconnected from MT5
+2026-01-27 01:03:58,167 - trading_bot.data_collector - INFO - Data collection stopped
+2026-01-27 01:03:58,168 - trading_bot - INFO - Auto Trading System stopped
+2026-01-27 01:03:58,168 - trading_bot.data_collector - INFO - Data collection stopped
+2026-01-27 01:03:58,168 - trading_bot - INFO - Auto Trading System stopped
