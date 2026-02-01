@@ -69,7 +69,7 @@ def print_dashboard():
     clear_screen()
     
     print("="*80)
-    print("📊 TRADING BOT DASHBOARD")
+    print("TRADING BOT DASHBOARD")
     print("="*80)
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
@@ -77,20 +77,20 @@ def print_dashboard():
     # Account info
     account = mt5.account_info()
     if account:
-        profit_color = "🟢" if account.profit >= 0 else "🔴"
-        print("💰 ACCOUNT INFO:")
+        profit_indicator = "[+]" if account.profit >= 0 else "[-]"
+        print("ACCOUNT INFO:")
         print("-"*80)
         print(f"Balance:       {format_currency(account.balance)}")
         print(f"Equity:        {format_currency(account.equity)}")
         print(f"Margin:        {format_currency(account.margin)}")
         print(f"Free Margin:   {format_currency(account.margin_free)}")
         print(f"Margin Level:  {account.margin_level:.2f}%" if account.margin > 0 else "Margin Level:  N/A")
-        print(f"Profit:        {profit_color} {format_currency(account.profit)}")
+        print(f"Profit:        {profit_indicator} {format_currency(account.profit)}")
         print()
     
     # Open positions
     positions = get_all_positions()
-    print(f"📈 OPEN POSITIONS ({len(positions)}):")
+    print(f"OPEN POSITIONS ({len(positions)}):")
     print("-"*80)
     
     if positions:
@@ -98,7 +98,7 @@ def print_dashboard():
         total_swap = 0
         
         for pos in positions:
-            status = "🟢" if pos['profit'] >= 0 else "🔴"
+            status = "[+]" if pos['profit'] >= 0 else "[-]"
             duration = datetime.now() - pos['open_time']
             hours = int(duration.total_seconds() / 3600)
             minutes = int((duration.total_seconds() % 3600) / 60)
@@ -132,7 +132,7 @@ def print_dashboard():
     
     # Closed trades today
     trades = get_closed_trades_today()
-    print(f"📋 CLOSED TRADES TODAY ({len(trades)}):")
+    print(f"CLOSED TRADES TODAY ({len(trades)}):")
     print("-"*80)
     
     if trades:
@@ -146,7 +146,7 @@ def print_dashboard():
         
         # Show last 15 trades
         for trade in sorted(trades, key=lambda x: x['time'], reverse=True)[:15]:
-            status = "✅" if trade['profit'] >= 0 else "❌"
+            status = "[WIN]" if trade['profit'] >= 0 else "[LOSS]"
             net = trade['profit'] + trade['commission'] + trade['swap']
             print(f"{status} {trade['time'].strftime('%H:%M:%S')} | {trade['symbol']:12} | "
                   f"{trade['type']:4} | Vol: {trade['volume']:.2f} | "
@@ -197,7 +197,7 @@ def main():
         mt5.shutdown()
         return
     
-    print("✓ Connected to MT5")
+    print("[OK] Connected to MT5")
     print("Loading dashboard...")
     time.sleep(2)
     

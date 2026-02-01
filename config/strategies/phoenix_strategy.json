@@ -1,0 +1,131 @@
+{
+  "phoenix_system": {
+    "strategy_name": "PHOENIX",
+    "core_philosophy": "Controlled Aggression - Maximum growth while preventing catastrophic losses",
+    "parameters": {
+      "timeframes": [
+        "M15",
+        "H1"
+      ],
+      "risk_per_trade_range": [
+        0.02,
+        0.08
+      ],
+      "winrate_target": [
+        0.92,
+        0.95
+      ],
+      "trading_pairs": [
+        "GBPJPY",
+        "XAUUSD",
+        "NAS100"
+      ],
+      "max_leverage": 100,
+      "compounding_reinvestment": 1.5,
+      "max_drawdown_limit": 0.12,
+      "base_kelly": 0.25
+    },
+    "unique_features": {
+      "kelly_optimization": {
+        "confidence_multiplier_range": [
+          0.5,
+          1.5
+        ],
+        "win_streak_multiplier": 0.05,
+        "drawdown_protection_thresholds": [
+          {
+            "dd_max": 0.03,
+            "multiplier": 1.5
+          },
+          {
+            "dd_max": 0.06,
+            "multiplier": 1.2
+          },
+          {
+            "dd_max": 0.09,
+            "multiplier": 0.8
+          },
+          {
+            "dd_max": 1.0,
+            "multiplier": 0.4
+          }
+        ],
+        "hard_risk_limits": [
+          0.02,
+          0.08
+        ]
+      },
+      "anti_martingale_progression": {
+        "consecutive_wins_trigger": 3,
+        "position_size_increase": 0.5,
+        "max_position_size_multiplier": 4.0,
+        "recovery_extra_risk_after_loss": 0.005
+      },
+      "multi_timeframe_alignment": {
+        "required_timeframes": [
+          "M5",
+          "M15",
+          "H1",
+          "H4"
+        ],
+        "alignment_rules": {
+          "maximum_position": "all_4_aligned",
+          "reduced_position": "3_of_4_aligned",
+          "no_trade": "less_than_3_aligned"
+        }
+      }
+    },
+    "entry_conditions": {
+      "indicators": {
+        "ma_fast": 10,
+        "ma_slow": 30,
+        "rsi_period": 14,
+        "macd_requirement": "macd > macd_signal",
+        "atr_period": 14
+      },
+      "momentum_confirmation": {
+        "rsi_range": [
+          30,
+          70
+        ],
+        "macd_requirement": "macd > macd_signal"
+      },
+      "timeframe_alignment": {
+        "required_alignment": 4,
+        "trend_consistency": "same_direction_all_timeframes"
+      },
+      "min_confidence": 70
+    },
+    "exit_strategy": {
+      "stop_loss": "2%_from_entry",
+      "take_profit": "4%_from_entry",
+      "risk_reward_ratio": "1:2",
+      "atr_multiplier_sl": 2.0,
+      "atr_multiplier_tp": 4.0
+    },
+    "performance_targets": {
+      "monthly_return": 2.428,
+      "max_drawdown": 0.112,
+      "winrate": 0.942,
+      "profit_factor": 8.8,
+      "sharpe_ratio": 5.4
+    },
+    "position_sizing_formula": "capital * risk_percent * position_size_multiplier",
+    "capital_requirements": {
+      "minimum": 500,
+      "optimal": [
+        2000,
+        50000
+      ]
+    },
+    "trader_profile": {
+      "age_range": [
+        25,
+        40
+      ],
+      "risk_tolerance": "high",
+      "time_commitment": "4-6_hours_daily",
+      "experience_level": "intermediate"
+    }
+  }
+}

@@ -5,9 +5,9 @@ import subprocess
 import os
 from datetime import datetime, timedelta
 from src.data_collector import DataCollector
-from src.strategy import TradingStrategy
+from src.strategy_manager import StrategyManager
 from src.trade_executor import TradeExecutor
-from src.utils import load_config, setup_logging
+from src.utils import load_config, setup_logging, safe_log
 
 def launch_mt5_terminal(terminal_path):
     """Launch MT5 terminal if not already running"""
@@ -98,6 +98,34 @@ def collect_minute_data(data_collector, symbols, duration=60):
         logging.info(f"{symbol}: {count} ticks collected")
     logging.info("="*60)
 
+def find_strategy_file():
+    """Find strategy JSON file in config directory"""
+    strategy_dir = "config/strategies"
+    
+    # Check if strategies directory exists
+    if not os.path.exists(strategy_dir):
+        os.makedirs(strategy_dir, exist_ok=True)
+        logging.info(f"Created strategies directory: {strategy_dir}")
+        return None
+    
+    # Look for JSON files
+    json_files = [f for f in os.listdir(strategy_dir) if f.endswith('.json')]
+    
+    if not json_files:
+        logging.warning("No strategy JSON files found in config/strategies/")
+        return None
+    
+    # Use the first JSON file found
+    strategy_file = os.path.join(strategy_dir, json_files[0])
+    logging.info(f"Found strategy file: {strategy_file}")
+    
+    # If multiple files, list them
+    if len(json_files) > 1:
+        logging.info(f"Multiple strategy files available: {json_files}")
+        logging.info(f"Using: {json_files[0]}")
+    
+    return strategy_file
+
 def main():
     # Setup logging
     setup_logging()
@@ -116,8 +144,22 @@ def main():
     
     # Initialize components
     data_collector = DataCollector(trading_config)
-    strategy = TradingStrategy(trading_config)
-    trade_executor = TradeExecutor(broker_config, trading_config)
+    
+    # Load strategy from JSON file
+    strategy_file = find_strategy_file()
+    strategy_manager = StrategyManager(strategy_file)
+    
+    # Display strategy info
+    strategy_info = strategy_manager.get_strategy_info()
+    logging.info("="*60)
+    logging.info("LOADED STRATEGY INFO:")
+    logging.info(f"Name: {strategy_info['name']}")
+    logging.info(f"Philosophy: {strategy_info.get('philosophy', 'N/A')}")
+    logging.info(f"Timeframes: {strategy_info.get('timeframes', [])}")
+    logging.info(f"Target Pairs: {strategy_info.get('pairs', [])}")
+    logging.info("="*60)
+    
+    trade_executor = TradeExecutor(broker_config, trading_config, strategy_manager)
     
     # Get trading symbols from config
     symbols = trading_config['symbols']
@@ -145,6 +187,7 @@ def main():
             
             logging.info("="*60)
             logging.info(f"CYCLE #{cycle_count} - {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logging.info(f"Strategy: {strategy_manager.strategy_name}")
             logging.info("="*60)
             
             # Step 1: Collect 1-minute tick data
@@ -171,23 +214,31 @@ def main():
                         logging.info(f"  1-min Average - Bid: {avg_bid:.5f}, Ask: {avg_ask:.5f}, Spread: {avg_spread:.5f}")
                     
                     # Analyze with strategy
-                    signal = strategy.analyze(symbol, ohlc_data)
+                    signal = strategy_manager.analyze(symbol, ohlc_data)
                     
                     logging.info(f"  Signal: {signal['action']} (Confidence: {signal['confidence']}%)")
                     
+                    # Log key indicators
+                    if signal['indicators']:
+                        logging.info(f"  Indicators:")
+                        for key, value in signal['indicators'].items():
+                            logging.info(f"    {key}: {value:.5f}")
+                    
                     # Execute trades based on signal
                     if signal['action'] != 'HOLD':
-                        logging.info(f"  âš¡ Executing {signal['action']} order...")
+                        logging.info(safe_log(f"  ⚡ Executing {signal['action']} order..."))
                         success = trade_executor.execute_signal(symbol, signal)
                         if success:
-                            logging.info(f"  âœ… Order executed successfully")
+                            logging.info(safe_log(f"  ✓ Order executed successfully"))
                         else:
-                            logging.warning(f"  âŒ Order execution failed")
+                            logging.warning(safe_log(f"  ✗ Order execution failed"))
                     else:
-                        logging.info(f"  âž¡ï¸  No action taken (HOLD)")
+                        logging.info(safe_log(f"  ⏸️  No action taken (HOLD)"))
                     
                 except Exception as e:
                     logging.error(f"Error processing {symbol}: {str(e)}")
+                    import traceback
+                    logging.error(traceback.format_exc())
                     continue
             
             # Step 3: Manage existing positions

@@ -14,23 +14,36 @@ def load_config(config_path):
         return {}
 
 def setup_logging(log_dir='logs', log_level=logging.INFO):
-    """Setup logging configuration"""
+    """Setup logging configuration with UTF-8 encoding for emoji support"""
     # Create logs directory if not exists
     os.makedirs(log_dir, exist_ok=True)
     
     # Generate log filename with timestamp
     log_filename = f"{log_dir}/trading_{datetime.now().strftime('%Y%m%d')}.log"
     
-    # Configure logging
+    # Configure logging with UTF-8 encoding
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s | %(levelname)s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ]
+            logging.FileHandler(log_filename, encoding='utf-8'),  # UTF-8 encoding for file
+            logging.StreamHandler()  # Console output
+        ],
+        force=True  # Force reconfiguration if already configured
     )
+    
+    # Set console handler encoding to UTF-8 on Windows
+    import sys
+    if sys.platform == 'win32':
+        # Try to set console to UTF-8
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleCP(65001)  # UTF-8
+            kernel32.SetConsoleOutputCP(65001)  # UTF-8
+        except:
+            pass  # If fails, emoji will be replaced with safe characters
     
     # Suppress some noisy loggers
     logging.getLogger('urllib3').setLevel(logging.WARNING)
@@ -57,7 +70,7 @@ def validate_symbol(symbol):
     """Validate if symbol format is correct"""
     if len(symbol) < 6:
         return False
-    if not symbol.replace('/', '').replace('_', '').isalpha():
+    if not symbol.replace('/', '').replace('_', '').replace('.', '').isalpha():
         return False
     return True
 
@@ -169,3 +182,32 @@ class TradingMetrics:
         print(f"Average Win: ${summary['average_win']:.2f}")
         print(f"Average Loss: ${summary['average_loss']:.2f}")
         print("="*60 + "\n")
+
+def safe_log(message):
+    """
+    Safe logging function that removes emoji and special characters on Windows
+    """
+    import sys
+    if sys.platform == 'win32':
+        # Remove common emojis that cause encoding issues
+        emoji_map = {
+            '✓': '[OK]',
+            '✗': '[X]',
+            '⚡': '[!]',
+            '⏸️': '[HOLD]',
+            '🟢': '[+]',
+            '🔴': '[-]',
+            '📊': '[CHART]',
+            '💰': '[$]',
+            '🚀': '[>>]',
+            '📈': '[UP]',
+            '📉': '[DOWN]',
+            '⚠️': '[WARNING]',
+            '❌': '[ERROR]',
+            '✅': '[SUCCESS]',
+        }
+        
+        for emoji, replacement in emoji_map.items():
+            message = message.replace(emoji, replacement)
+    
+    return message
