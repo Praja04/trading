@@ -4,7 +4,6 @@ symbols:
   - "EURUSD.s"
   - "GBPUSD.s"
   - "USDJPY.s"
-  # Tambahkan pair lain sesuai kebutuhan
   # - "AUDUSD"
   # - "USDCHF"
   # - "XAUUSD"  # Gold
