@@ -1,0 +1,45 @@
+{
+  "conservative_scalper": {
+    "strategy_name": "Conservative Scalper",
+    "core_philosophy": "Small consistent gains with minimal risk",
+    "parameters": {
+      "timeframes": ["M1", "M5"],
+      "risk_per_trade_range": [0.005, 0.01],
+      "winrate_target": [0.75, 0.85],
+      "trading_pairs": ["EURUSD.s", "GBPUSD.s", "USDJPY.s"],
+      "max_leverage": 50,
+      "max_drawdown_limit": 0.05
+    },
+    "entry_conditions": {
+      "indicators": {
+        "ma_fast": 5,
+        "ma_slow": 20,
+        "rsi_period": 14,
+        "rsi_oversold": 35,
+        "rsi_overbought": 65,
+        "bb_period": 20,
+        "bb_std_dev": 2
+      },
+      "momentum_confirmation": {
+        "rsi_range": [35, 65],
+        "macd_requirement": "macd > macd_signal"
+      },
+      "min_confidence": 75
+    },
+    "exit_strategy": {
+      "stop_loss": "15_pips",
+      "take_profit": "20_pips",
+      "risk_reward_ratio": "1:1.33"
+    },
+    "performance_targets": {
+      "monthly_return": 0.5,
+      "max_drawdown": 0.05,
+      "winrate": 0.80,
+      "profit_factor": 2.5
+    },
+    "capital_requirements": {
+      "minimum": 1000,
+      "optimal": [5000, 20000]
+    }
+  }
+}

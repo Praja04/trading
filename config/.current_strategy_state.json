@@ -1,0 +1,25 @@
+{
+  "strategy_name": "Conservative Scalper",
+  "strategy_path": "config/strategies\\conservative_strategy.json",
+  "strategy_info": {
+    "name": "Conservative Scalper",
+    "philosophy": "Small consistent gains with minimal risk",
+    "timeframes": [
+      "M1",
+      "M5"
+    ],
+    "pairs": [
+      "EURUSD.s",
+      "GBPUSD.s",
+      "USDJPY.s"
+    ],
+    "performance_targets": {
+      "monthly_return": 0.5,
+      "max_drawdown": 0.05,
+      "winrate": 0.8,
+      "profit_factor": 2.5
+    }
+  },
+  "last_updated": "2026-02-09 09:11:17",
+  "timestamp": "2026-02-09T09:11:17.485245"
+}

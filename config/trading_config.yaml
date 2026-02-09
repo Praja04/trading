@@ -4,9 +4,9 @@ symbols:
   - "EURUSD.s"
   - "GBPUSD.s"
   - "USDJPY.s"
-  # - "AUDUSD"
-  # - "USDCHF"
-  # - "XAUUSD"  # Gold
+  - "AUDUSD"
+  - "USDCHF"
+  - "XAUUSD.s"  # Gold
 
 # Position Management
 lot_size: 0.1  # Lot size per trade (0.01 = 1 micro lot)

@@ -2,12 +2,105 @@ import MetaTrader5 as mt5
 from datetime import datetime
 import time
 import os
+import json
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def format_currency(value):
     return f"${value:,.2f}"
+
+def load_strategy_state():
+    """Load current strategy state"""
+    try:
+        state_file = 'config/.current_strategy_state.json'
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+            return state
+        return None
+    except Exception as e:
+        return None
+
+def get_high_impact_news_today():
+    """Get high impact news for today from database"""
+    try:
+        import sqlite3
+        db_path = 'data/database/trading_data.db'
+        
+        if not os.path.exists(db_path):
+            return []
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get high impact news for today
+        query = '''
+            SELECT title, currency, event_time, forecast, previous, actual
+            FROM news
+            WHERE date(event_time) = date('now')
+            AND impact = 'High'
+            ORDER BY event_time ASC
+        '''
+        
+        cursor.execute(query)
+        
+        news_list = []
+        for row in cursor.fetchall():
+            news_list.append({
+                'title': row[0],
+                'currency': row[1],
+                'event_time': row[2],
+                'forecast': row[3],
+                'previous': row[4],
+                'actual': row[5]
+            })
+        
+        conn.close()
+        return news_list
+        
+    except Exception as e:
+        return []
+
+def get_upcoming_high_impact_news(hours=24):
+    """Get upcoming high impact news"""
+    try:
+        import sqlite3
+        db_path = 'data/database/trading_data.db'
+        
+        if not os.path.exists(db_path):
+            return []
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        query = f'''
+            SELECT title, currency, event_time, forecast, previous
+            FROM news
+            WHERE event_time >= datetime('now')
+            AND event_time <= datetime('now', '+{hours} hours')
+            AND impact = 'High'
+            ORDER BY event_time ASC
+            LIMIT 10
+        '''
+        
+        cursor.execute(query)
+        
+        news_list = []
+        for row in cursor.fetchall():
+            news_list.append({
+                'title': row[0],
+                'currency': row[1],
+                'event_time': row[2],
+                'forecast': row[3],
+                'previous': row[4]
+            })
+        
+        conn.close()
+        return news_list
+        
+    except Exception as e:
+        return []
 
 def get_all_positions():
     """Get all open positions with details"""
@@ -73,6 +166,66 @@ def print_dashboard():
     print("="*80)
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
+    
+    # ======================================================================
+    # FIX: Display current strategy info
+    # ======================================================================
+    strategy_state = load_strategy_state()
+    if strategy_state:
+        print("CURRENT STRATEGY:")
+        print("-"*80)
+        print(f"Name:        {strategy_state.get('strategy_name', 'N/A')}")
+        
+        strategy_info = strategy_state.get('strategy_info', {})
+        if strategy_info:
+            philosophy = strategy_info.get('philosophy', 'N/A')
+            if len(philosophy) > 60:
+                philosophy = philosophy[:57] + "..."
+            print(f"Philosophy:  {philosophy}")
+            print(f"Timeframes:  {', '.join(strategy_info.get('timeframes', []))}")
+            
+            pairs = strategy_info.get('pairs', [])
+            if pairs:
+                pairs_str = ', '.join(pairs[:5])
+                if len(pairs) > 5:
+                    pairs_str += f" (+{len(pairs)-5} more)"
+                print(f"Target Pairs: {pairs_str}")
+        
+        last_updated = strategy_state.get('last_updated', 'Unknown')
+        print(f"Last Updated: {last_updated}")
+        print()
+    else:
+        print("CURRENT STRATEGY: Not loaded")
+        print()
+    
+    # ======================================================================
+    # FIX: Display upcoming high-impact news
+    # ======================================================================
+    upcoming_news = get_upcoming_high_impact_news(hours=24)
+    if upcoming_news:
+        print("UPCOMING HIGH IMPACT NEWS (Next 24h):")
+        print("-"*80)
+        for news in upcoming_news[:5]:  # Show first 5
+            event_time = datetime.strptime(news['event_time'], '%Y-%m-%d %H:%M:%S')
+            time_str = event_time.strftime('%H:%M')
+            
+            # Check if today or tomorrow
+            if event_time.date() == datetime.now().date():
+                date_prefix = "Today"
+            elif event_time.date() == (datetime.now().date()):
+                date_prefix = "Tomorrow"
+            else:
+                date_prefix = event_time.strftime('%m/%d')
+            
+            title = news['title']
+            if len(title) > 45:
+                title = title[:42] + "..."
+            
+            print(f"[{date_prefix} {time_str}] {news['currency']:3} | {title}")
+        
+        if len(upcoming_news) > 5:
+            print(f"... and {len(upcoming_news) - 5} more upcoming events")
+        print()
     
     # Account info
     account = mt5.account_info()

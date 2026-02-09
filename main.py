@@ -3,11 +3,57 @@ import time
 import logging
 import subprocess
 import os
+import json
 from datetime import datetime, timedelta
 from src.data_collector import DataCollector
 from src.strategy_manager import StrategyManager
 from src.trade_executor import TradeExecutor
+from src.news_collector import NewsCollector, start_news_updater
 from src.utils import load_config, setup_logging, safe_log
+
+# ======================================================================
+# FIX: Global variables for strategy reloading
+# ======================================================================
+current_strategy_manager = None
+strategy_file_path = None
+
+# ======================================================================
+# FIX: State file untuk menyimpan strategy yang sedang aktif
+# ======================================================================
+STATE_FILE = 'config/.current_strategy_state.json'
+
+def save_strategy_state(strategy_name, strategy_path, strategy_info):
+    """Save current strategy state to file"""
+    try:
+        os.makedirs('config', exist_ok=True)
+        
+        state = {
+            'strategy_name': strategy_name,
+            'strategy_path': strategy_path,
+            'strategy_info': strategy_info,
+            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
+        
+        logging.info(f"✓ Strategy state saved: {strategy_name}")
+        
+    except Exception as e:
+        logging.error(f"Error saving strategy state: {str(e)}")
+
+def load_strategy_state():
+    """Load strategy state from file"""
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+            return state
+        return None
+    except Exception as e:
+        logging.error(f"Error loading strategy state: {str(e)}")
+        return None
 
 def launch_mt5_terminal(terminal_path):
     """Launch MT5 terminal if not already running"""
@@ -115,18 +161,102 @@ def find_strategy_file():
         logging.warning("No strategy JSON files found in config/strategies/")
         return None
     
-    # Use the first JSON file found
-    strategy_file = os.path.join(strategy_dir, json_files[0])
-    logging.info(f"Found strategy file: {strategy_file}")
+    # ======================================================================
+    # FIX: Use the MOST RECENTLY MODIFIED file (newest upload)
+    # ======================================================================
+    json_file_paths = [os.path.join(strategy_dir, f) for f in json_files]
+    latest_file = max(json_file_paths, key=os.path.getmtime)
     
-    # If multiple files, list them
+    logging.info(f"✓ Found strategy file: {latest_file}")
+    
+    # If multiple files, list them with timestamps
     if len(json_files) > 1:
-        logging.info(f"Multiple strategy files available: {json_files}")
-        logging.info(f"Using: {json_files[0]}")
+        logging.info(f"Available strategy files ({len(json_files)}):")
+        for filepath in sorted(json_file_paths, key=os.path.getmtime, reverse=True):
+            filename = os.path.basename(filepath)
+            mod_time = datetime.fromtimestamp(os.path.getmtime(filepath))
+            logging.info(f"  - {filename} (modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')})")
+        logging.info(f"Using NEWEST: {os.path.basename(latest_file)}")
     
-    return strategy_file
+    return latest_file
+
+def check_strategy_reload_signal():
+    """Check if strategy should be reloaded"""
+    signal_file = 'config/.reload_strategy'
+    
+    if os.path.exists(signal_file):
+        try:
+            # Read the signal timestamp
+            with open(signal_file, 'r') as f:
+                signal_time = f.read().strip()
+            
+            # Delete the signal file
+            os.remove(signal_file)
+            
+            logging.info("="*60)
+            logging.info("⚡ STRATEGY RELOAD SIGNAL DETECTED")
+            logging.info(f"Signal time: {signal_time}")
+            logging.info("="*60)
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error processing reload signal: {str(e)}")
+            return False
+    
+    return False
+
+def reload_strategy():
+    """Reload the strategy from file"""
+    global current_strategy_manager, strategy_file_path
+    
+    try:
+        logging.info("Reloading strategy...")
+        
+        # Find the latest strategy file
+        new_strategy_file = find_strategy_file()
+        
+        if new_strategy_file is None:
+            logging.error("No strategy file found for reload")
+            return False
+        
+        # Create new strategy manager
+        new_strategy_manager = StrategyManager(new_strategy_file)
+        
+        # Display new strategy info
+        strategy_info = new_strategy_manager.get_strategy_info()
+        logging.info("="*60)
+        logging.info("✓ NEW STRATEGY LOADED:")
+        logging.info(f"Name: {strategy_info['name']}")
+        logging.info(f"Philosophy: {strategy_info.get('philosophy', 'N/A')}")
+        logging.info(f"Timeframes: {strategy_info.get('timeframes', [])}")
+        logging.info(f"Target Pairs: {strategy_info.get('pairs', [])}")
+        logging.info("="*60)
+        
+        # Update global references
+        current_strategy_manager = new_strategy_manager
+        strategy_file_path = new_strategy_file
+        
+        # ======================================================================
+        # FIX: Save strategy state untuk dashboard
+        # ======================================================================
+        save_strategy_state(
+            strategy_name=strategy_info['name'],
+            strategy_path=new_strategy_file,
+            strategy_info=strategy_info
+        )
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error reloading strategy: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return False
 
 def main():
+    global current_strategy_manager, strategy_file_path
+    
     # Setup logging
     setup_logging()
     logging.info("="*60)
@@ -142,15 +272,48 @@ def main():
         logging.error("Failed to initialize MT5. Exiting...")
         return
     
+    # ======================================================================
+    # FIX: Initialize News Collector dan start background updater
+    # ======================================================================
+    logging.info("="*60)
+    logging.info("INITIALIZING NEWS COLLECTOR")
+    logging.info("="*60)
+    
+    news_collector = NewsCollector()
+    
+    # Initial news fetch
+    logging.info("Fetching initial news data from MT5 Economic Calendar...")
+    initial_news_count = news_collector.update_news(days_ahead=7)
+    if initial_news_count > 0:
+        logging.info(f"✓ Loaded {initial_news_count} news items from MT5 calendar")
+    else:
+        logging.warning("No news data fetched from MT5 calendar")
+    
+    # Start background news updater (updates every 30 minutes)
+    news_updater_thread = start_news_updater(interval_minutes=30)
+    logging.info("✓ Background news updater started (interval: 30 minutes)")
+    
+    # Display upcoming high-impact news
+    upcoming_news = news_collector.get_upcoming_news(hours=24, impact='High')
+    if upcoming_news:
+        logging.info("="*60)
+        logging.info(f"HIGH IMPACT NEWS - Next 24 Hours ({len(upcoming_news)} events)")
+        logging.info("="*60)
+        for news in upcoming_news[:5]:  # Show first 5
+            logging.info(f"{news['event_time']} | {news['currency']} | {news['title']}")
+        if len(upcoming_news) > 5:
+            logging.info(f"... and {len(upcoming_news) - 5} more events")
+        logging.info("="*60)
+    
     # Initialize components
     data_collector = DataCollector(trading_config)
     
     # Load strategy from JSON file
-    strategy_file = find_strategy_file()
-    strategy_manager = StrategyManager(strategy_file)
+    strategy_file_path = find_strategy_file()
+    current_strategy_manager = StrategyManager(strategy_file_path)
     
     # Display strategy info
-    strategy_info = strategy_manager.get_strategy_info()
+    strategy_info = current_strategy_manager.get_strategy_info()
     logging.info("="*60)
     logging.info("LOADED STRATEGY INFO:")
     logging.info(f"Name: {strategy_info['name']}")
@@ -159,7 +322,16 @@ def main():
     logging.info(f"Target Pairs: {strategy_info.get('pairs', [])}")
     logging.info("="*60)
     
-    trade_executor = TradeExecutor(broker_config, trading_config, strategy_manager)
+    # ======================================================================
+    # FIX: Save initial strategy state
+    # ======================================================================
+    save_strategy_state(
+        strategy_name=strategy_info['name'],
+        strategy_path=strategy_file_path,
+        strategy_info=strategy_info
+    )
+    
+    trade_executor = TradeExecutor(broker_config, trading_config, current_strategy_manager)
     
     # Get trading symbols from config
     symbols = trading_config['symbols']
@@ -185,9 +357,20 @@ def main():
             cycle_count += 1
             current_time = datetime.now()
             
+            # ======================================================================
+            # FIX: Check for strategy reload signal at the start of each cycle
+            # ======================================================================
+            if check_strategy_reload_signal():
+                if reload_strategy():
+                    # Update trade executor with new strategy
+                    trade_executor.strategy_manager = current_strategy_manager
+                    logging.info("✓ Strategy reloaded successfully in trading system")
+                else:
+                    logging.error("Failed to reload strategy, continuing with current strategy")
+            
             logging.info("="*60)
             logging.info(f"CYCLE #{cycle_count} - {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            logging.info(f"Strategy: {strategy_manager.strategy_name}")
+            logging.info(f"Strategy: {current_strategy_manager.strategy_name}")
             logging.info("="*60)
             
             # Step 1: Collect 1-minute tick data
@@ -214,7 +397,7 @@ def main():
                         logging.info(f"  1-min Average - Bid: {avg_bid:.5f}, Ask: {avg_ask:.5f}, Spread: {avg_spread:.5f}")
                     
                     # Analyze with strategy
-                    signal = strategy_manager.analyze(symbol, ohlc_data)
+                    signal = current_strategy_manager.analyze(symbol, ohlc_data)
                     
                     logging.info(f"  Signal: {signal['action']} (Confidence: {signal['confidence']}%)")
                     
