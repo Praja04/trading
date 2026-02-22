@@ -38,37 +38,66 @@ DB_PATH = "data/database/trading_data.db"
 news_collector = NewsCollector(DB_PATH)
 trade_history_manager = TradeHistoryManager(DB_PATH)
 news_updater_thread = start_news_updater(interval_minutes=30)
-print("✓ MT5 News updater started (updates every 30 minutes)")
+print("✓ News updater started via Forex Factory (updates every 30 minutes)")
 
 # Global variables for real-time data
-realtime_tick_data = {}
+symbols_to_track = []  # Will be populated by load_symbols_from_config()
 
 # ======================================================================
-# FIX 1: Load symbols dynamically from trading_config.yaml
+# CORE FUNCTIONS
 # ======================================================================
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 def load_symbols_from_config():
-    """Load trading symbols from config file"""
+    """Load trading symbols from strategy state file or config"""
     try:
+        # Priority 1: Strategy state file
+        state_file = 'config/.current_strategy_state.json'
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                
+                strategy_info = state.get('strategy_info', {})
+                if 'pairs' in strategy_info and strategy_info['pairs']:
+                    symbols = strategy_info['pairs']
+                    print(f"✓ Loaded {len(symbols)} symbols from strategy state")
+                    return symbols
+            except Exception as e:
+                print(f"⚠ Error reading state file: {e}")
+                # Fall through to config file
+        
+        # Priority 2: Config file
         config_path = 'config/trading_config.yaml'
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
                 symbols = config.get('symbols', ["EURUSD.s", "GBPUSD.s", "USDJPY.s"])
-                print(f"✓ Loaded {len(symbols)} symbols from config: {symbols}")
+                print(f"✓ Loaded {len(symbols)} symbols from config")
                 return symbols
-        else:
-            print("⚠ Config file not found, using default symbols")
-            return ["EURUSD.s", "GBPUSD.s", "USDJPY.s"]
+        
+        # Priority 3: Default
+        print("⚠ No config files found, using default symbols")
+        return ["EURUSD.s", "GBPUSD.s", "USDJPY.s"]
+        
     except Exception as e:
-        print(f"Error loading symbols from config: {e}")
+        print(f"Error loading symbols: {e}")
         return ["EURUSD.s", "GBPUSD.s", "USDJPY.s"]
 
-# Load symbols dynamically
-symbols_to_track = load_symbols_from_config()
-
-def allowed_file(filename):
-    """Check if file extension is allowed"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+def refresh_global_symbols():
+    """Refresh symbols from current strategy state - call this after strategy upload"""
+    global symbols_to_track
+    
+    try:
+        symbols_to_track = load_symbols_from_config()
+        print(f"🔄 SYMBOLS REFRESHED: {len(symbols_to_track)} pairs -> {symbols_to_track}")
+        return symbols_to_track
+    except Exception as e:
+        print(f"✗ Error refreshing symbols: {e}")
+        return []
 
 def init_mt5():
     """Initialize MT5 connection"""
@@ -106,37 +135,16 @@ def calculate_drawdown():
     if not account:
         return {'current_drawdown': 0.0, 'max_drawdown': 0.0, 'drawdown_percent': 0.0}
     
-    # Get historical equity data from database
     try:
-        conn = sqlite3.connect(DB_PATH)
-        query = '''
-            SELECT MAX(equity) as max_equity 
-            FROM (
-                SELECT timestamp, 
-                       (SELECT balance FROM account_history WHERE timestamp <= t.timestamp ORDER BY timestamp DESC LIMIT 1) + 
-                       COALESCE((SELECT SUM(profit) FROM ticks WHERE timestamp <= t.timestamp), 0) as equity
-                FROM ticks t
-                WHERE timestamp >= datetime('now', '-7 days')
-            )
-        '''
-        
-        # Simple calculation based on current data
         current_equity = float(account.equity)
         balance = float(account.balance)
         
-        # Current drawdown is the difference between balance and equity if negative
         current_drawdown = float(max(0, balance - current_equity))
         drawdown_percent = float((current_drawdown / balance * 100)) if balance > 0 else 0.0
         
-        # For max drawdown, we'll use a simple heuristic
-        # In production, you'd track this over time
-        max_drawdown = float(current_drawdown)  # Simplified
-        
-        conn.close()
-        
         return {
             'current_drawdown': float(current_drawdown),
-            'max_drawdown': float(max_drawdown),
+            'max_drawdown': float(current_drawdown),
             'drawdown_percent': float(drawdown_percent)
         }
     except Exception as e:
@@ -225,7 +233,6 @@ def get_realtime_ohlc(symbol):
     if not init_mt5():
         return None
     
-    # Get the latest candle
     rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 1)
     if rates is None or len(rates) == 0:
         return None
@@ -277,18 +284,79 @@ def get_tick_history_from_db(symbol, minutes=60):
         if df.empty:
             return []
         
-        # Convert to list of dicts
         df['timestamp'] = pd.to_datetime(df['timestamp'])
-        
         return df.to_dict('records')
         
     except Exception as e:
         print(f"Error getting tick history: {e}")
         return []
 
-# ===========================================
+# ======================================================================
+# STRATEGY MANAGEMENT FUNCTIONS
+# ======================================================================
+
+def extract_strategy_info(strategy_data):
+    """Extract key information from strategy JSON"""
+    try:
+        strategy = None
+        
+        if isinstance(strategy_data, dict):
+            if len(strategy_data) == 1:
+                strategy_key = list(strategy_data.keys())[0]
+                strategy = strategy_data[strategy_key]
+            else:
+                strategy = strategy_data
+        else:
+            raise ValueError("Strategy data must be a dictionary")
+        
+        # Extract symbols/pairs from multiple possible locations
+        pairs = []
+        
+        if 'pairs' in strategy:
+            pairs = strategy['pairs']
+        elif 'trading_pairs' in strategy:
+            pairs = strategy['trading_pairs']
+        elif 'symbols' in strategy:
+            pairs = strategy['symbols']
+        elif 'parameters' in strategy and 'trading_pairs' in strategy['parameters']:
+            pairs = strategy['parameters']['trading_pairs']
+        elif 'parameters' in strategy and 'symbols' in strategy['parameters']:
+            pairs = strategy['parameters']['symbols']
+        
+        if not isinstance(pairs, list):
+            pairs = []
+        
+        return {
+            'name': strategy.get('strategy_name', strategy.get('name', 'Unknown Strategy')),
+            'philosophy': strategy.get('core_philosophy', strategy.get('philosophy', 'N/A')),
+            'timeframes': strategy.get('parameters', {}).get('timeframes', strategy.get('timeframes', [])),
+            'pairs': pairs,
+            'risk_per_trade': strategy.get('parameters', {}).get('risk_per_trade_range', []),
+            'performance_targets': strategy.get('performance_targets', {})
+        }
+    except Exception as e:
+        print(f"Error extracting strategy info: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return {
+            'name': 'Unknown',
+            'philosophy': 'Error parsing strategy',
+            'timeframes': [],
+            'pairs': [],
+            'risk_per_trade': [],
+            'performance_targets': {}
+        }
+
+# ======================================================================
+# INITIALIZE SYMBOLS
+# ======================================================================
+
+symbols_to_track = refresh_global_symbols()
+print(f"📊 Initialized with {len(symbols_to_track)} trading symbols")
+
+# ======================================================================
 # MAIN ROUTES
-# ===========================================
+# ======================================================================
 
 @app.route('/')
 def index():
@@ -340,13 +408,28 @@ def api_realtime_symbol(symbol):
 def api_realtime_all():
     """Get real-time data for all tracked symbols"""
     try:
-        data = get_all_symbols_realtime()
+        print(f"📊 API realtime/all called - Using {len(symbols_to_track)} symbols")
+        
+        data = {}
+        for symbol in symbols_to_track:
+            tick_data = get_realtime_tick(symbol)
+            ohlc_data = get_realtime_ohlc(symbol)
+            
+            if tick_data and ohlc_data:
+                data[symbol] = {
+                    'tick': tick_data,
+                    'ohlc': ohlc_data
+                }
+        
         return jsonify({
             'success': True,
             'data': data,
+            'symbols': symbols_to_track,
+            'count': len(data),
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
     except Exception as e:
+        print(f"Error in api_realtime_all: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/tick-history/<symbol>')
@@ -366,10 +449,8 @@ def api_trades():
 def api_stats():
     """Get trading statistics"""
     try:
-        # Get today's trades
         trades = get_closed_trades_today()
         
-        # Calculate statistics
         winning_trades = [t for t in trades if t['profit'] > 0]
         losing_trades = [t for t in trades if t['profit'] < 0]
         
@@ -408,9 +489,9 @@ def api_drawdown():
     dd = calculate_drawdown()
     return jsonify(dd)
 
-# ===========================================
+# ======================================================================
 # NEWS API ENDPOINTS
-# ===========================================
+# ======================================================================
 
 @app.route('/api/news/recent')
 def api_news_recent():
@@ -462,20 +543,20 @@ def api_news_high_impact_today():
 
 @app.route('/api/news/update', methods=['POST'])
 def api_news_update():
-    """Manually trigger news update from MT5"""
+    """Manually trigger news update from Forex Factory"""
     try:
-        count = news_collector.update_news(days_ahead=7)
+        count = news_collector.update_news()
         return jsonify({
             'success': True,
-            'message': f'Updated {count} news items from MT5',
+            'message': f'Updated {count} news items from Forex Factory',
             'count': count
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ===========================================
+# ======================================================================
 # TRADE HISTORY API ENDPOINTS
-# ===========================================
+# ======================================================================
 
 @app.route('/api/history/trades')
 def api_history_trades():
@@ -542,9 +623,9 @@ def api_history_export():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ===========================================
+# ======================================================================
 # POSITION MANAGEMENT API ENDPOINTS
-# ===========================================
+# ======================================================================
 
 @app.route('/api/positions/close/<int:ticket>', methods=['POST'])
 def api_close_position(ticket):
@@ -553,7 +634,6 @@ def api_close_position(ticket):
         return jsonify({'success': False, 'error': 'MT5 not connected'}), 500
     
     try:
-        # Get position info
         position = None
         positions = mt5.positions_get(ticket=ticket)
         
@@ -562,7 +642,6 @@ def api_close_position(ticket):
         else:
             return jsonify({'success': False, 'error': 'Position not found'}), 404
         
-        # Prepare close request
         close_request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "position": ticket,
@@ -577,7 +656,6 @@ def api_close_position(ticket):
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
         
-        # Send close order
         result = mt5.order_send(close_request)
         
         if result.retcode != mt5.TRADE_RETCODE_DONE:
@@ -620,7 +698,6 @@ def api_close_all_positions():
         
         for position in positions:
             try:
-                # Prepare close request
                 close_request = {
                     "action": mt5.TRADE_ACTION_DEAL,
                     "position": position.ticket,
@@ -635,7 +712,6 @@ def api_close_all_positions():
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
-                # Send close order
                 result = mt5.order_send(close_request)
                 
                 if result.retcode == mt5.TRADE_RETCODE_DONE:
@@ -731,13 +807,13 @@ def api_close_symbol_positions(symbol):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ===========================================
-# FIX 2: STRATEGY MANAGEMENT API ENDPOINTS
-# ===========================================
+# ======================================================================
+# STRATEGY MANAGEMENT API ENDPOINTS - UPDATED
+# ======================================================================
 
 @app.route('/api/strategy/upload', methods=['POST'])
 def api_upload_strategy():
-    """Upload a new strategy JSON file"""
+    """Upload a new strategy JSON file AND update current strategy state"""
     try:
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'No file provided'}), 400
@@ -750,32 +826,67 @@ def api_upload_strategy():
         if not allowed_file(file.filename):
             return jsonify({'success': False, 'error': 'Invalid file type. Only JSON files allowed'}), 400
         
-        # Secure the filename
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         
-        # Validate JSON before saving
         try:
             file_content = file.read()
             strategy_data = json.loads(file_content)
             
-            # Validate strategy structure
             if not isinstance(strategy_data, dict):
                 return jsonify({'success': False, 'error': 'Invalid strategy format'}), 400
             
-            # Save the file
             with open(filepath, 'wb') as f:
                 f.write(file_content)
+            
+            print(f"✓ Strategy file saved: {filepath}")
             
             # Extract strategy info
             strategy_info = extract_strategy_info(strategy_data)
             
+            # Create updated state
+            state = {
+                'strategy_name': strategy_info['name'],
+                'strategy_path': filepath,
+                'strategy_info': strategy_info,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Save to state file
+            state_file = 'config/.current_strategy_state.json'
+            with open(state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+            
+            print(f"✓ Strategy state updated: {strategy_info['name']}")
+            print(f"  Last updated: {state['last_updated']}")
+            print(f"  Symbols in strategy: {strategy_info.get('pairs', [])}")
+            
+            # ======================================================================
+            # CRITICAL: REFRESH GLOBAL SYMBOLS IMMEDIATELY
+            # ======================================================================
+            refreshed_symbols = refresh_global_symbols()
+            
+            # ======================================================================
+            # CRITICAL: CREATE RELOAD SIGNAL FOR MAIN.PY
+            # ======================================================================
+            signal_file = 'config/.reload_strategy'
+            with open(signal_file, 'w') as f:
+                f.write(datetime.now().isoformat())
+            
+            print(f"✓ Reload signal created: {signal_file}")
+            print(f"✓ Main.py will reload with new symbols: {refreshed_symbols}")
+            
             return jsonify({
                 'success': True,
-                'message': f'Strategy "{filename}" uploaded successfully',
+                'message': f'Strategy "{filename}" uploaded and activated successfully',
                 'filename': filename,
                 'filepath': filepath,
-                'strategy_info': strategy_info
+                'strategy_info': strategy_info,
+                'symbols': refreshed_symbols,  # ← SEND NEW SYMBOLS TO FRONTEND
+                'symbols_count': len(refreshed_symbols),
+                'state_updated': True,
+                'reload_signal_created': True
             })
             
         except json.JSONDecodeError as e:
@@ -824,9 +935,28 @@ def api_list_strategies():
 
 @app.route('/api/strategy/current')
 def api_current_strategy():
-    """Get the currently active strategy"""
+    """Get the currently active strategy from state file"""
     try:
-        # Find the most recently uploaded strategy
+        state_file = 'config/.current_strategy_state.json'
+        
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                
+                strategy_file = state.get('strategy_path')
+                if strategy_file and os.path.exists(strategy_file):
+                    return jsonify({
+                        'success': True,
+                        'strategy': state.get('strategy_info', {}),
+                        'filename': os.path.basename(strategy_file),
+                        'filepath': strategy_file,
+                        'last_updated': state.get('last_updated', 'Unknown'),
+                        'from_state_file': True
+                    })
+            except Exception as e:
+                print(f"Error reading state file: {e}")
+        
         strategies_folder = app.config['UPLOAD_FOLDER']
         
         if not os.path.exists(strategies_folder):
@@ -837,7 +967,6 @@ def api_current_strategy():
         if not json_files:
             return jsonify({'success': False, 'error': 'No strategy files found'}), 404
         
-        # Get the most recent file
         latest_file = max(
             [os.path.join(strategies_folder, f) for f in json_files],
             key=os.path.getmtime
@@ -847,12 +976,106 @@ def api_current_strategy():
             strategy_data = json.load(f)
         
         strategy_info = extract_strategy_info(strategy_data)
-        strategy_info['filename'] = os.path.basename(latest_file)
-        strategy_info['filepath'] = latest_file
+        
+        state = {
+            'strategy_name': strategy_info['name'],
+            'strategy_path': latest_file,
+            'strategy_info': strategy_info,
+            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        with open(state_file, 'w') as f:
+            json.dump(state, f, indent=2)
+        
+        print(f"✓ Auto-created state file for: {strategy_info['name']}")
         
         return jsonify({
             'success': True,
-            'strategy': strategy_info
+            'strategy': strategy_info,
+            'from_latest_file': True,
+            'state_auto_created': True
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/strategy/update-state', methods=['POST'])
+def api_update_strategy_state():
+    """Manually update the current strategy state file"""
+    try:
+        strategies_folder = app.config['UPLOAD_FOLDER']
+        
+        if not os.path.exists(strategies_folder):
+            return jsonify({'success': False, 'error': 'No strategies folder found'}), 404
+        
+        json_files = [f for f in os.listdir(strategies_folder) if f.endswith('.json')]
+        
+        if not json_files:
+            return jsonify({'success': False, 'error': 'No strategy files found'}), 404
+        
+        latest_file = max(
+            [os.path.join(strategies_folder, f) for f in json_files],
+            key=os.path.getmtime
+        )
+        
+        with open(latest_file, 'r') as f:
+            strategy_data = json.load(f)
+        
+        strategy_info = extract_strategy_info(strategy_data)
+        
+        state = {
+            'strategy_name': strategy_info['name'],
+            'strategy_path': latest_file,
+            'strategy_info': strategy_info,
+            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        state_file = 'config/.current_strategy_state.json'
+        with open(state_file, 'w') as f:
+            json.dump(state, f, indent=2)
+        
+        signal_file = 'config/.reload_strategy'
+        with open(signal_file, 'w') as f:
+            f.write(datetime.now().isoformat())
+        
+        return jsonify({
+            'success': True,
+            'message': f'Strategy state updated to: {strategy_info["name"]}',
+            'strategy': strategy_info,
+            'state_file': state_file,
+            'reload_signal_created': True,
+            'strategy_file': latest_file
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/strategy/state', methods=['GET'])
+def api_get_strategy_state():
+    """Get the current strategy state file content"""
+    try:
+        state_file = 'config/.current_strategy_state.json'
+        
+        if not os.path.exists(state_file):
+            return jsonify({
+                'success': False,
+                'error': 'No strategy state file found',
+                'exists': False
+            }), 404
+        
+        with open(state_file, 'r') as f:
+            state = json.load(f)
+        
+        strategy_file = state.get('strategy_path')
+        file_exists = os.path.exists(strategy_file) if strategy_file else False
+        
+        return jsonify({
+            'success': True,
+            'state': state,
+            'file_exists': file_exists,
+            'last_modified': datetime.fromtimestamp(os.path.getmtime(state_file)).isoformat() if os.path.exists(state_file) else None
         })
         
     except Exception as e:
@@ -860,12 +1083,8 @@ def api_current_strategy():
 
 @app.route('/api/strategy/reload', methods=['POST'])
 def api_reload_strategy():
-    """
-    Reload the strategy in the trading system
-    This endpoint signals the main trading loop to reload the strategy
-    """
+    """Reload the strategy in the trading system"""
     try:
-        # Create a signal file to tell main.py to reload strategy
         signal_file = 'config/.reload_strategy'
         
         with open(signal_file, 'w') as f:
@@ -879,39 +1098,9 @@ def api_reload_strategy():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-def extract_strategy_info(strategy_data):
-    """Extract key information from strategy JSON"""
-    try:
-        # Handle different JSON structures
-        if len(strategy_data) == 1:
-            # Strategy is nested under a key
-            strategy_key = list(strategy_data.keys())[0]
-            strategy = strategy_data[strategy_key]
-        else:
-            strategy = strategy_data
-        
-        return {
-            'name': strategy.get('strategy_name', 'Unknown'),
-            'philosophy': strategy.get('core_philosophy', 'N/A'),
-            'timeframes': strategy.get('parameters', {}).get('timeframes', []),
-            'pairs': strategy.get('parameters', {}).get('trading_pairs', []),
-            'risk_per_trade': strategy.get('parameters', {}).get('risk_per_trade_range', []),
-            'performance_targets': strategy.get('performance_targets', {})
-        }
-    except Exception as e:
-        print(f"Error extracting strategy info: {e}")
-        return {
-            'name': 'Unknown',
-            'philosophy': 'Error parsing strategy',
-            'timeframes': [],
-            'pairs': [],
-            'risk_per_trade': [],
-            'performance_targets': {}
-        }
-
-# ===========================================
+# ======================================================================
 # CONFIGURATION API ENDPOINTS
-# ===========================================
+# ======================================================================
 
 @app.route('/api/config/symbols')
 def api_get_symbols():
@@ -929,8 +1118,7 @@ def api_reload_config():
     global symbols_to_track
     
     try:
-        # Reload symbols from config
-        symbols_to_track = load_symbols_from_config()
+        symbols_to_track = refresh_global_symbols()
         
         return jsonify({
             'success': True,
@@ -942,15 +1130,84 @@ def api_reload_config():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-print("News collector and trade history manager initialized")
-print("Background news updater started")
-print(f"Tracking {len(symbols_to_track)} symbols: {symbols_to_track}")
+# ======================================================================
+# DEBUG & REFRESH ENDPOINTS
+# ======================================================================
+
+@app.route('/api/refresh/symbols', methods=['POST'])
+def api_refresh_symbols():
+    """Manually refresh symbols from current strategy"""
+    try:
+        refreshed_symbols = refresh_global_symbols()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Symbols refreshed: {len(refreshed_symbols)} pairs',
+            'symbols': refreshed_symbols,
+            'count': len(refreshed_symbols)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/refresh/all', methods=['POST'])
+def api_refresh_all():
+    """Force refresh everything: symbols + create reload signal for main.py"""
+    try:
+        refreshed_symbols = refresh_global_symbols()
+        
+        signal_file = 'config/.reload_strategy'
+        with open(signal_file, 'w') as f:
+            f.write(datetime.now().isoformat())
+        
+        return jsonify({
+            'success': True,
+            'message': 'Full refresh completed',
+            'symbols': refreshed_symbols,
+            'reload_signal_created': True
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/debug/status')
+def api_debug_status():
+    """Debug endpoint to check current state"""
+    return jsonify({
+        'symbols_to_track': symbols_to_track,
+        'symbols_count': len(symbols_to_track),
+        'state_file_exists': os.path.exists('config/.current_strategy_state.json'),
+        'reload_signal_exists': os.path.exists('config/.reload_strategy'),
+        'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+
+# ======================================================================
+# INITIALIZATION
+# ======================================================================
+
+print("="*80)
+print("🚀 ENHANCED FLASK DASHBOARD")
+print("="*80)
+print(f"📊 Initial trading symbols: {symbols_to_track}")
+print(f"📂 Strategy upload folder: {UPLOAD_FOLDER}")
+print(f"📡 Real-time market updates: ENABLED")
+print(f"🔄 Hot-reload: ENABLED (symbols auto-refresh after strategy upload)")
+print(f"⚡ Main.py auto-reload: ENABLED via signal file")
+print("="*80)
+
+state_file = 'config/.current_strategy_state.json'
+if os.path.exists(state_file):
+    try:
+        with open(state_file, 'r') as f:
+            state = json.load(f)
+        print(f"✓ Current strategy: {state.get('strategy_name', 'Unknown')}")
+        strategy_info = state.get('strategy_info', {})
+        if 'pairs' in strategy_info:
+            print(f"✓ Strategy symbols: {strategy_info['pairs']}")
+    except Exception as e:
+        print(f"⚠ Error reading state file: {e}")
+
+print("="*80)
 
 if __name__ == '__main__':
-    print("="*60)
-    print("Starting Enhanced Flask Dashboard on http://localhost:5000")
-    print("Real-time tick updates enabled")
-    print("Strategy upload folder:", UPLOAD_FOLDER)
-    print(f"Monitoring {len(symbols_to_track)} pairs")
-    print("="*60)
     app.run(debug=True, host='0.0.0.0', port=5000)

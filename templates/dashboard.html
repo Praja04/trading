@@ -1129,6 +1129,26 @@
         padding: 40px;
         color: var(--text-secondary);
       }
+
+      /* Price update animation */
+      .price-value.price-update {
+        animation: priceFlash 0.5s ease;
+      }
+
+      @keyframes priceFlash {
+        0%,
+        100% {
+          background-color: transparent;
+        }
+        50% {
+          background-color: rgba(0, 212, 255, 0.2);
+        }
+      }
+
+      /* Smooth transitions for price values */
+      .price-value {
+        transition: background-color 0.3s ease;
+      }
     </style>
   </head>
   <body>
@@ -1457,18 +1477,13 @@
         updateDrawdownInfo();
       }
 
-      // Update live market data
+      // Update live market data dengan refresh partial
       async function updateMarketData() {
         try {
           const response = await fetch("/api/realtime/all");
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
           const result = await response.json();
-
-          // FIX: Handle response format correctly
           const data = result.success ? result.data : result;
 
           if (!data || Object.keys(data).length === 0) {
@@ -1477,89 +1492,175 @@
             return;
           }
 
-          let html = "";
+          // Iterasi setiap simbol market
           for (const [symbol, marketData] of Object.entries(data)) {
             const tick = marketData.tick;
             const ohlc = marketData.ohlc;
-
             if (!tick || !ohlc) continue;
 
+            const cardId = `market-card-${symbol.replace(/[^a-zA-Z0-9]/g, "-")}`;
+            let card = document.getElementById(cardId);
+
+            // Jika kartu belum ada, buat yang baru
+            if (!card) {
+              const change = ohlc.close - ohlc.open;
+              const changePercent = (change / ohlc.open) * 100;
+              const changeClass = change >= 0 ? "positive" : "negative";
+
+              const html = `
+                    <div class="market-card fade-in" id="${cardId}">
+                        <div class="market-header">
+                            <div class="market-symbol">${symbol.replace(".s", "")}</div>
+                            <div class="market-status">ACTIVE</div>
+                        </div>
+                        <div class="market-prices">
+                            <div class="price-box">
+                                <div class="price-label">BID</div>
+                                <div class="price-value bid" id="${cardId}-bid">${formatNumber(tick.bid)}</div>
+                            </div>
+                            <div class="price-box">
+                                <div class="price-label">ASK</div>
+                                <div class="price-value ask" id="${cardId}-ask">${formatNumber(tick.ask)}</div>
+                            </div>
+                        </div>
+                        <div class="market-details">
+                            <div class="detail-item">
+                                <div class="detail-label">SPREAD</div>
+                                <div class="detail-value" id="${cardId}-spread">${formatNumber(tick.spread, 5)}</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">CHANGE</div>
+                                <div class="detail-value ${changeClass}" id="${cardId}-change">
+                                    ${change >= 0 ? "+" : ""}${changePercent.toFixed(2)}%
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-label">VOLUME</div>
+                                <div class="detail-value" id="${cardId}-volume">${tick.volume}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+              document
+                .getElementById("market-data")
+                .insertAdjacentHTML("beforeend", html);
+              continue;
+            }
+
+            // Hanya update elemen yang berubah (partial update)
+            updateMarketCard(cardId, symbol, tick, ohlc);
+          }
+
+          // Hapus kartu yang tidak lagi ada dalam data
+          cleanupMarketCards(data);
+        } catch (error) {
+          console.error("Error updating market data:", error);
+          // Tampilkan error tanpa menghapus semua kartu
+          showNotification(`Market data error: ${error.message}`, "error");
+        }
+      }
+
+      // Fungsi untuk update partial kartu market
+      function updateMarketCard(cardId, symbol, tick, ohlc) {
+        try {
+          // Update bid
+          const bidElement = document.getElementById(`${cardId}-bid`);
+          if (bidElement) {
+            bidElement.textContent = formatNumber(tick.bid);
+            addPriceFlashEffect(bidElement, tick.bid);
+          }
+
+          // Update ask
+          const askElement = document.getElementById(`${cardId}-ask`);
+          if (askElement) {
+            askElement.textContent = formatNumber(tick.ask);
+            addPriceFlashEffect(askElement, tick.ask);
+          }
+
+          // Update spread
+          const spreadElement = document.getElementById(`${cardId}-spread`);
+          if (spreadElement) {
+            spreadElement.textContent = formatNumber(tick.spread, 5);
+          }
+
+          // Update volume
+          const volumeElement = document.getElementById(`${cardId}-volume`);
+          if (volumeElement) {
+            volumeElement.textContent = tick.volume;
+          }
+
+          // Update change percentage
+          const changeElement = document.getElementById(`${cardId}-change`);
+          if (changeElement && ohlc) {
             const change = ohlc.close - ohlc.open;
             const changePercent = (change / ohlc.open) * 100;
             const changeClass = change >= 0 ? "positive" : "negative";
 
-            html += `
-        <div class="market-card fade-in">
-          <div class="market-header">
-            <div class="market-symbol">${symbol.replace(".s", "")}</div>
-            <div class="market-status">ACTIVE</div>
-          </div>
-          <div class="market-prices">
-            <div class="price-box">
-              <div class="price-label">BID</div>
-              <div class="price-value bid">${formatNumber(tick.bid)}</div>
-            </div>
-            <div class="price-box">
-              <div class="price-label">ASK</div>
-              <div class="price-value ask">${formatNumber(tick.ask)}</div>
-            </div>
-          </div>
-          <div class="market-details">
-            <div class="detail-item">
-              <div class="detail-label">SPREAD</div>
-              <div class="detail-value">${formatNumber(tick.spread, 5)}</div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-label">CHANGE</div>
-              <div class="detail-value ${changeClass}">
-                ${change >= 0 ? "+" : ""}${changePercent.toFixed(2)}%
-              </div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-label">VOLUME</div>
-              <div class="detail-value">${tick.volume}</div>
-            </div>
-          </div>
-        </div>
-      `;
+            changeElement.textContent = `${change >= 0 ? "+" : ""}${changePercent.toFixed(2)}%`;
+            changeElement.className = `detail-value ${changeClass}`;
           }
-
-          document.getElementById("market-data").innerHTML = html;
         } catch (error) {
-          console.error("Error updating market data:", error);
-          document.getElementById("market-data").innerHTML =
-            `<div class="no-data" style="color: var(--danger);">Error loading market data: ${error.message}</div>`;
+          console.error(`Error updating card ${cardId}:`, error);
         }
       }
+
+      // Fungsi untuk membersihkan kartu yang tidak ada dalam data
+      function cleanupMarketCards(currentData) {
+        const allCards = document.querySelectorAll(".market-card");
+        const currentSymbols = Object.keys(currentData).map(
+          (s) => `market-card-${s.replace(/[^a-zA-Z0-9]/g, "-")}`,
+        );
+
+        allCards.forEach((card) => {
+          const cardId = card.id;
+          if (!currentSymbols.includes(cardId)) {
+            card.remove();
+          }
+        });
+      }
+
+      // Efek flash untuk perubahan harga
+      function addPriceFlashEffect(element, newValue) {
+        const oldValue = parseFloat(element.dataset.lastValue || 0);
+        element.dataset.lastValue = newValue;
+
+        if (oldValue && oldValue !== newValue) {
+          element.classList.add("price-update");
+          setTimeout(() => {
+            element.classList.remove("price-update");
+          }, 500);
+        }
+      }
+
       // Update account stats
-    async function updateAccountStats() {
-  try {
-    const accountResponse = await fetch("/api/account");
-    const account = await accountResponse.json();
+      async function updateAccountStats() {
+        try {
+          const accountResponse = await fetch("/api/account");
+          const account = await accountResponse.json();
 
-    const statsResponse = await fetch("/api/stats");
-    const statsData = await statsResponse.json();
-    
-    // ✅ Extract nested stats data
-    const stats = statsData.stats || {
-      win_rate: 0,
-      winning_trades: 0,
-      losing_trades: 0,
-      net_profit: 0,
-      profit_factor: 0,
-      avg_win: 0,
-      avg_loss: 0
-    };
+          const statsResponse = await fetch("/api/stats");
+          const statsData = await statsResponse.json();
 
-    const profitClass = getValueClass(account.profit);
-    const winRateClass = stats.win_rate >= 50 ? "positive" : "negative";
-    
-    // ✅ Handle margin level safely (bisa 0)
-    const marginLevel = account.margin > 0 
-      ? account.margin_level.toFixed(2) 
-      : '∞';
+          // ✅ Extract nested stats data
+          const stats = statsData.stats || {
+            win_rate: 0,
+            winning_trades: 0,
+            losing_trades: 0,
+            net_profit: 0,
+            profit_factor: 0,
+            avg_win: 0,
+            avg_loss: 0,
+          };
 
-    const html = `
+          const profitClass = getValueClass(account.profit);
+          const winRateClass = stats.win_rate >= 50 ? "positive" : "negative";
+
+          // ✅ Handle margin level safely (bisa 0)
+          const marginLevel =
+            account.margin > 0 ? account.margin_level.toFixed(2) : "∞";
+
+          const html = `
       <div class="stat-card">
         <div class="stat-header">BALANCE</div>
         <div class="stat-value">${formatCurrency(account.balance)}</div>
@@ -1589,13 +1690,12 @@
       </div>
     `;
 
-    document.getElementById("account-stats").innerHTML = html;
-    
-  } catch (error) {
-    console.error("Error updating account stats:", error);
-    // Error handling...
-  }
-}
+          document.getElementById("account-stats").innerHTML = html;
+        } catch (error) {
+          console.error("Error updating account stats:", error);
+          // Error handling...
+        }
+      }
 
       // Update drawdown info
       async function updateDrawdownInfo() {
@@ -1677,33 +1777,50 @@
       }
 
       // Update strategy info
-     async function updateStrategyInfo() {
+      async function updateStrategyInfo() {
         try {
           const response = await fetch("/api/strategy");
           const data = await response.json();
-          
+
           // Extract strategy data - it's nested under data.strategy
           const strategy = data.strategy || {};
-          
+
           // Format philosophy text (truncate if too long)
           const philosophy = strategy.philosophy || "N/A";
-          const shortPhilosophy = philosophy.length > 80 ? philosophy.substring(0, 77) + "..." : philosophy;
-          
+          const shortPhilosophy =
+            philosophy.length > 80
+              ? philosophy.substring(0, 77) + "..."
+              : philosophy;
+
           // Format timeframes
-          const timeframes = strategy.timeframes ? strategy.timeframes.join(", ") : "N/A";
-          
+          const timeframes = strategy.timeframes
+            ? strategy.timeframes.join(", ")
+            : "N/A";
+
           // Format trading pairs
           const pairs = strategy.pairs || [];
-          const pairsText = pairs.length > 0 ? pairs.slice(0, 5).join(", ") + (pairs.length > 5 ? ` (+${pairs.length - 5} more)` : "") : "N/A";
-          
+          const pairsText =
+            pairs.length > 0
+              ? pairs.slice(0, 5).join(", ") +
+                (pairs.length > 5 ? ` (+${pairs.length - 5} more)` : "")
+              : "N/A";
+
           // Format risk per trade
-          const riskPerTrade = strategy.risk_per_trade ? `${(strategy.risk_per_trade[0] * 100).toFixed(1)}% - ${(strategy.risk_per_trade[1] * 100).toFixed(1)}%` : "N/A";
-          
+          const riskPerTrade = strategy.risk_per_trade
+            ? `${(strategy.risk_per_trade[0] * 100).toFixed(1)}% - ${(strategy.risk_per_trade[1] * 100).toFixed(1)}%`
+            : "N/A";
+
           // Format performance targets
           const performance = strategy.performance_targets || {};
-          const winrate = performance.winrate ? `${(performance.winrate * 100).toFixed(1)}%` : "N/A";
-          const profitFactor = performance.profit_factor ? performance.profit_factor.toFixed(2) : "N/A";
-          const monthlyReturn = performance.monthly_return ? `${(performance.monthly_return * 100).toFixed(1)}%` : "N/A";
+          const winrate = performance.winrate
+            ? `${(performance.winrate * 100).toFixed(1)}%`
+            : "N/A";
+          const profitFactor = performance.profit_factor
+            ? performance.profit_factor.toFixed(2)
+            : "N/A";
+          const monthlyReturn = performance.monthly_return
+            ? `${(performance.monthly_return * 100).toFixed(1)}%`
+            : "N/A";
 
           document.getElementById("strategy-info").innerHTML = `
                     <div class="strategy-active">
@@ -1890,13 +2007,35 @@
       // File handling
       function handleFileSelect(event) {
         const file = event.target.files[0];
+        const selectedFileDiv = document.getElementById("selected-file");
+        const uploadBtn = document.getElementById("upload-btn");
+
         if (file) {
-          document.getElementById("selected-file").textContent =
-            `📎 ${file.name}`;
-          document.getElementById("upload-btn").disabled = false;
+          // Validate file size (max 5MB)
+          const maxSize = 5 * 1024 * 1024; // 5MB
+          if (file.size > maxSize) {
+            selectedFileDiv.innerHTML = `<span style="color: var(--danger);">❌ File too large (max 5MB)</span>`;
+            uploadBtn.disabled = true;
+            return;
+          }
+
+          // Validate file type
+          if (!file.name.toLowerCase().endsWith(".json")) {
+            selectedFileDiv.innerHTML = `<span style="color: var(--danger);">❌ Only JSON files allowed</span>`;
+            uploadBtn.disabled = true;
+            return;
+          }
+
+          selectedFileDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="color: var(--success);">✓</span>
+                <span>${file.name} (${(file.size / 1024).toFixed(1)} KB)</span>
+            </div>
+        `;
+          uploadBtn.disabled = false;
         } else {
-          document.getElementById("selected-file").textContent = "";
-          document.getElementById("upload-btn").disabled = true;
+          selectedFileDiv.innerHTML = "";
+          uploadBtn.disabled = true;
         }
       }
 
@@ -1910,10 +2049,18 @@
         formData.append("file", file);
 
         const uploadBtn = document.getElementById("upload-btn");
+        const uploadMessage = document.getElementById("upload-message");
+
         uploadBtn.disabled = true;
         uploadBtn.textContent = "DEPLOYING...";
+        uploadMessage.innerHTML =
+          '<div class="loading">Uploading strategy file...</div>';
 
         try {
+          // Step 1: Upload file
+          uploadMessage.innerHTML =
+            '<div class="loading">📤 Uploading file...</div>';
+
           const response = await fetch("/api/strategy/upload", {
             method: "POST",
             body: formData,
@@ -1922,27 +2069,54 @@
           const data = await response.json();
 
           if (data.success) {
-            document.getElementById("upload-message").innerHTML =
-              `<div class="success">✓ ${data.message}</div>`;
-            fileInput.value = "";
-            document.getElementById("selected-file").textContent = "";
-            setTimeout(() => {
-              updateStrategyInfo();
-              document.getElementById("upload-message").innerHTML = "";
-            }, 3000);
+            uploadMessage.innerHTML = `
+                <div class="success">✅ File uploaded: ${data.filename}</div>
+                <div class="success">📋 Strategy: ${data.strategy_info.name}</div>
+            `;
+
+            // Step 2: Auto-refresh dashboard info
+            setTimeout(async () => {
+              uploadMessage.innerHTML +=
+                '<div class="success">🔄 Updating dashboard...</div>';
+
+              // Update strategy info
+              await updateStrategyInfo();
+
+              // Update market data (in case symbols changed)
+              await updateMarketData();
+
+              // Show final success
+              uploadMessage.innerHTML +=
+                '<div class="success">✨ Dashboard updated!</div>';
+
+              // Show notification
+              showNotification(
+                `Strategy "${data.strategy_info.name}" deployed successfully!`,
+                "success",
+              );
+
+              // Clear form
+              fileInput.value = "";
+              document.getElementById("selected-file").textContent = "";
+
+              // Clear messages after 5 seconds
+              setTimeout(() => {
+                uploadMessage.innerHTML = "";
+              }, 5000);
+            }, 1000);
           } else {
-            document.getElementById("upload-message").innerHTML =
-              `<div class="error">✗ ${data.error}</div>`;
+            uploadMessage.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+            showNotification("Strategy upload failed", "error");
           }
         } catch (error) {
-          document.getElementById("upload-message").innerHTML =
-            `<div class="error">✗ Upload failed</div>`;
+          uploadMessage.innerHTML = `<div class="error">❌ Upload failed: ${error.message}</div>`;
+          showNotification("Network error during upload", "error");
+          console.error("Upload error:", error);
         } finally {
           uploadBtn.disabled = false;
           uploadBtn.textContent = "DEPLOY STRATEGY";
         }
       }
-
       // Initialize dashboard
       function initDashboard() {
         updateMarketData();
@@ -2471,6 +2645,25 @@
     .badge-danger {
         background: var(--danger-glow);
         color: var(--danger);
+    }
+    
+    /* Loading animation */
+    .loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--accent-cyan);
+        font-size: 14px;
+    }
+    
+    .loading::before {
+        content: "";
+        width: 16px;
+        height: 16px;
+        border: 2px solid var(--accent-cyan);
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
     }
 `;
       document.head.appendChild(style);
