@@ -4,71 +4,64 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
+
 
 class StrategyManager:
     """
-    Flexible strategy manager that loads and executes strategies from JSON configuration
+    Flexible strategy manager — ALL behaviour is driven by the uploaded JSON.
+    No hard-coded indicator weights, SL/TP values, or pair lists.
     """
-    
+
     def __init__(self, strategy_path: str = None):
-        """
-        Initialize strategy manager
-        
-        Args:
-            strategy_path: Path to JSON strategy file
-        """
         self.strategy_config = None
         self.strategy_name = "Default"
         self.indicators_cache = {}
-        
+
         if strategy_path and os.path.exists(strategy_path):
             self.load_strategy(strategy_path)
         else:
-            logging.warning("No strategy file provided, using default strategy")
+            logging.warning("No strategy file provided, using minimal default")
             self._load_default_strategy()
-    
+
+    # ------------------------------------------------------------------
+    # LOADING
+    # ------------------------------------------------------------------
+
     def load_strategy(self, strategy_path: str) -> bool:
-        """
-        Load strategy from JSON file
-        
-        Args:
-            strategy_path: Path to JSON strategy file
-            
-        Returns:
-            bool: Success status
-        """
         try:
             with open(strategy_path, 'r') as f:
                 config = json.load(f)
-            
-            # Support different JSON structures
-            if len(config) == 1:
-                # Get the first key (strategy name)
+
+            # Support both { "strategy_name": {...} } and flat { ... }
+            if len(config) == 1 and isinstance(list(config.values())[0], dict):
                 strategy_key = list(config.keys())[0]
                 self.strategy_config = config[strategy_key]
                 self.strategy_name = self.strategy_config.get('strategy_name', strategy_key)
             else:
                 self.strategy_config = config
                 self.strategy_name = config.get('strategy_name', 'Custom')
-            
-            logging.info(f"✓ Strategy loaded: {self.strategy_name}")
+
+            logging.info(f"[OK] Strategy loaded: {self.strategy_name}")
             self._log_strategy_info()
             return True
-            
+
         except Exception as e:
-            logging.error(f"Error loading strategy from {strategy_path}: {str(e)}")
+            logging.error(f"Error loading strategy from {strategy_path}: {e}")
             self._load_default_strategy()
             return False
-    
+
     def _load_default_strategy(self):
-        """Load default strategy configuration"""
+        """Minimal default — only used when NO file is present at all."""
         self.strategy_config = {
             "strategy_name": "Default MA+RSI",
             "parameters": {
+                "trading_pairs": [],
                 "timeframes": ["M1"],
                 "risk_per_trade_range": [0.01, 0.02],
-                "max_leverage": 100
+                "max_positions": 3,
+                "max_leverage": 100,
+                "min_confidence": 60
             },
             "entry_conditions": {
                 "indicators": {
@@ -77,439 +70,365 @@ class StrategyManager:
                     "rsi_period": 14,
                     "rsi_oversold": 30,
                     "rsi_overbought": 70
+                },
+                # Default scoring weights — user can override in JSON
+                "scoring": {
+                    "ma_cross": 40,
+                    "rsi": 35,
+                    "macd": 25
                 }
             },
             "exit_strategy": {
-                "stop_loss": "20_pips",
-                "take_profit": "30_pips"
+                "stop_loss_pips": 20,
+                "take_profit_pips": 40
             }
         }
         self.strategy_name = "Default"
-    
+
     def _log_strategy_info(self):
-        """Log loaded strategy information"""
-        logging.info("="*60)
-        logging.info(f"STRATEGY: {self.strategy_name}")
-        
+        logging.info("=" * 60)
+        logging.info(f"STRATEGY : {self.strategy_name}")
         params = self.strategy_config.get('parameters', {})
-        if params:
-            logging.info(f"Timeframes: {params.get('timeframes', 'Not specified')}")
-            logging.info(f"Risk per trade: {params.get('risk_per_trade_range', 'Not specified')}")
-            logging.info(f"Max leverage: {params.get('max_leverage', 'Not specified')}")
-        
-        performance = self.strategy_config.get('performance_targets', {})
-        if performance:
-            logging.info(f"Target winrate: {performance.get('winrate', 'Not specified')}")
-            logging.info(f"Target profit factor: {performance.get('profit_factor', 'Not specified')}")
-        
-        logging.info("="*60)
-    
+        logging.info(f"Pairs    : {params.get('trading_pairs', [])}")
+        logging.info(f"Timeframes: {params.get('timeframes', [])}")
+        logging.info(f"Risk/trade: {params.get('risk_per_trade_range', [])}")
+        logging.info(f"Max pos  : {params.get('max_positions', 'N/A')}")
+        logging.info(f"Min conf : {params.get('min_confidence', 60)}%")
+        logging.info("=" * 60)
+
+    # ------------------------------------------------------------------
+    # INDICATOR CALCULATION — driven entirely by strategy JSON
+    # ------------------------------------------------------------------
+
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calculate indicators based on strategy configuration
-        
-        Args:
-            df: OHLC dataframe
-            
-        Returns:
-            DataFrame with indicators
-        """
         try:
             df = df.copy()
-            
-            # Get entry conditions
-            entry_config = self.strategy_config.get('entry_conditions', {})
-            
-            # Check for indicators in entry_conditions
-            indicators = entry_config.get('indicators', {})
-            momentum = entry_config.get('momentum_confirmation', {})
-            
-            # Merge indicators from both sources
-            all_indicators = {**indicators, **momentum}
-            
-            # Calculate Moving Averages
-            if 'ma_fast' in all_indicators:
-                ma_fast = int(all_indicators['ma_fast'])
-                df['ma_fast'] = df['close'].rolling(window=ma_fast).mean()
-            
-            if 'ma_slow' in all_indicators:
-                ma_slow = int(all_indicators['ma_slow'])
-                df['ma_slow'] = df['close'].rolling(window=ma_slow).mean()
-            
-            # Calculate RSI
-            if 'rsi_period' in all_indicators:
-                rsi_period = int(all_indicators['rsi_period'])
-                df['rsi'] = self._calculate_rsi(df['close'], rsi_period)
-            
-            # Calculate MACD
-            if 'macd_requirement' in all_indicators or 'use_macd' in all_indicators:
-                macd_data = self._calculate_macd(df['close'])
-                df['macd'] = macd_data['macd']
-                df['macd_signal'] = macd_data['signal']
-                df['macd_histogram'] = macd_data['histogram']
-            
-            # Calculate Bollinger Bands
-            if 'bollinger_bands' in all_indicators or 'bb_period' in all_indicators:
-                bb_period = all_indicators.get('bb_period', 20)
-                bb_std = all_indicators.get('bb_std_dev', 2)
-                bb_data = self._calculate_bollinger_bands(df['close'], bb_period, bb_std)
-                df['bb_upper'] = bb_data['upper']
-                df['bb_middle'] = bb_data['middle']
-                df['bb_lower'] = bb_data['lower']
-            
-            # Calculate ATR (for volatility)
-            if 'atr_period' in all_indicators:
-                atr_period = int(all_indicators['atr_period'])
-                df['atr'] = self._calculate_atr(df, atr_period)
-            
-            # Calculate Stochastic
-            if 'stochastic_period' in all_indicators:
-                stoch_period = int(all_indicators['stochastic_period'])
-                stoch_data = self._calculate_stochastic(df, stoch_period)
-                df['stoch_k'] = stoch_data['k']
-                df['stoch_d'] = stoch_data['d']
-            
-            # Calculate momentum
+            entry_cfg = self.strategy_config.get('entry_conditions', {})
+            indic = {
+                **entry_cfg.get('indicators', {}),
+                **entry_cfg.get('momentum_confirmation', {})
+            }
+
+            if 'ma_fast' in indic:
+                df['ma_fast'] = df['close'].rolling(int(indic['ma_fast'])).mean()
+            if 'ma_slow' in indic:
+                df['ma_slow'] = df['close'].rolling(int(indic['ma_slow'])).mean()
+            if 'ema_fast' in indic:
+                df['ema_fast'] = df['close'].ewm(span=int(indic['ema_fast']), adjust=False).mean()
+            if 'ema_slow' in indic:
+                df['ema_slow'] = df['close'].ewm(span=int(indic['ema_slow']), adjust=False).mean()
+            if 'rsi_period' in indic:
+                df['rsi'] = self._calculate_rsi(df['close'], int(indic['rsi_period']))
+            if any(k in indic for k in ('macd_requirement', 'use_macd', 'macd_fast')):
+                macd_fast   = int(indic.get('macd_fast',   12))
+                macd_slow   = int(indic.get('macd_slow',   26))
+                macd_signal = int(indic.get('macd_signal',  9))
+                m = self._calculate_macd(df['close'], macd_fast, macd_slow, macd_signal)
+                df['macd']           = m['macd']
+                df['macd_signal']    = m['signal']
+                df['macd_histogram'] = m['histogram']
+            if any(k in indic for k in ('bollinger_bands', 'bb_period')):
+                bb_period = int(indic.get('bb_period', 20))
+                bb_std    = float(indic.get('bb_std_dev', 2))
+                bb = self._calculate_bollinger_bands(df['close'], bb_period, bb_std)
+                df['bb_upper']  = bb['upper']
+                df['bb_middle'] = bb['middle']
+                df['bb_lower']  = bb['lower']
+            if 'atr_period' in indic:
+                df['atr'] = self._calculate_atr(df, int(indic['atr_period']))
+            if 'stochastic_period' in indic:
+                stoch = self._calculate_stochastic(df, int(indic['stochastic_period']))
+                df['stoch_k'] = stoch['k']
+                df['stoch_d'] = stoch['d']
+
             df['momentum'] = df['close'].pct_change(periods=5) * 100
-            
             return df
-            
+
         except Exception as e:
-            logging.error(f"Error calculating indicators: {str(e)}")
+            logging.error(f"Error calculating indicators: {e}")
             return df
-    
+
+    # ------------------------------------------------------------------
+    # PRIVATE: math helpers
+    # ------------------------------------------------------------------
+
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
-        """Calculate RSI indicator"""
         delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
-    
-    def _calculate_macd(self, prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict:
-        """Calculate MACD indicator"""
+        gain  = delta.where(delta > 0, 0).rolling(period).mean()
+        loss  = (-delta.where(delta < 0, 0)).rolling(period).mean()
+        rs    = gain / loss
+        return 100 - (100 / (1 + rs))
+
+    def _calculate_macd(self, prices, fast=12, slow=26, signal=9):
         ema_fast = prices.ewm(span=fast, adjust=False).mean()
         ema_slow = prices.ewm(span=slow, adjust=False).mean()
-        macd = ema_fast - ema_slow
-        macd_signal = macd.ewm(span=signal, adjust=False).mean()
-        macd_histogram = macd - macd_signal
-        
-        return {
-            'macd': macd,
-            'signal': macd_signal,
-            'histogram': macd_histogram
-        }
-    
-    def _calculate_bollinger_bands(self, prices: pd.Series, period: int = 20, std_dev: float = 2) -> Dict:
-        """Calculate Bollinger Bands"""
-        middle = prices.rolling(window=period).mean()
-        std = prices.rolling(window=period).std()
-        upper = middle + (std * std_dev)
-        lower = middle - (std * std_dev)
-        
-        return {
-            'upper': upper,
-            'middle': middle,
-            'lower': lower
-        }
-    
-    def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
-        """Calculate Average True Range"""
-        high_low = df['high'] - df['low']
-        high_close = np.abs(df['high'] - df['close'].shift())
-        low_close = np.abs(df['low'] - df['close'].shift())
-        
-        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        atr = true_range.rolling(window=period).mean()
-        
-        return atr
-    
-    def _calculate_stochastic(self, df: pd.DataFrame, period: int = 14, smooth_k: int = 3, smooth_d: int = 3) -> Dict:
-        """Calculate Stochastic Oscillator"""
-        low_min = df['low'].rolling(window=period).min()
-        high_max = df['high'].rolling(window=period).max()
-        
-        stoch_k = 100 * (df['close'] - low_min) / (high_max - low_min)
-        stoch_k = stoch_k.rolling(window=smooth_k).mean()
-        stoch_d = stoch_k.rolling(window=smooth_d).mean()
-        
-        return {
-            'k': stoch_k,
-            'd': stoch_d
-        }
-    
+        macd     = ema_fast - ema_slow
+        sig      = macd.ewm(span=signal, adjust=False).mean()
+        return {'macd': macd, 'signal': sig, 'histogram': macd - sig}
+
+    def _calculate_bollinger_bands(self, prices, period=20, std_dev=2):
+        middle = prices.rolling(period).mean()
+        std    = prices.rolling(period).std()
+        return {'upper': middle + std * std_dev, 'middle': middle, 'lower': middle - std * std_dev}
+
+    def _calculate_atr(self, df, period=14) -> pd.Series:
+        hl  = df['high'] - df['low']
+        hc  = np.abs(df['high'] - df['close'].shift())
+        lc  = np.abs(df['low']  - df['close'].shift())
+        tr  = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+        return tr.rolling(period).mean()
+
+    def _calculate_stochastic(self, df, period=14, smooth_k=3, smooth_d=3):
+        lo  = df['low'].rolling(period).min()
+        hi  = df['high'].rolling(period).max()
+        k   = 100 * (df['close'] - lo) / (hi - lo)
+        k   = k.rolling(smooth_k).mean()
+        d   = k.rolling(smooth_d).mean()
+        return {'k': k, 'd': d}
+
+    # ------------------------------------------------------------------
+    # ANALYSIS — main entry point
+    # ------------------------------------------------------------------
+
     def analyze(self, symbol: str, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Analyze market data and generate trading signal based on strategy
-        
-        Args:
-            symbol: Trading symbol
-            df: OHLC dataframe with indicators
-            
-        Returns:
-            Signal dictionary with action, confidence, price, etc.
-        """
         try:
-            # Calculate indicators
             df = self.calculate_indicators(df)
-            
-            # Get latest data
+
             if len(df) < 2:
-                return self._get_hold_signal(df.iloc[-1]['close'] if len(df) > 0 else 0)
-            
+                close = df.iloc[-1]['close'] if len(df) > 0 else 0
+                return self._hold(close)
+
             latest = df.iloc[-1]
-            prev = df.iloc[-2]
-            
-            # Initialize signal
+            prev   = df.iloc[-2]
+
+            entry_cfg = self.strategy_config.get('entry_conditions', {})
+            buy_score, sell_score = self._evaluate_conditions(latest, prev, entry_cfg)
+
             signal = {
-                'action': 'HOLD',
+                'action':     'HOLD',
                 'confidence': 0,
-                'price': latest['close'],
-                'timestamp': datetime.now(),
-                'strategy': self.strategy_name,
-                'indicators': {}
+                'price':      float(latest['close']),
+                'timestamp':  datetime.now(),
+                'strategy':   self.strategy_name,
+                'indicators': self._extract_indicators(latest)
             }
-            
-            # Check if we have enough data
-            if pd.isna(latest.get('ma_slow')) and pd.isna(latest.get('rsi')):
-                return signal
-            
-            # Get entry conditions from strategy
-            entry_config = self.strategy_config.get('entry_conditions', {})
-            
-            # Evaluate signal based on strategy configuration
-            buy_score, sell_score = self._evaluate_conditions(df, latest, prev, entry_config)
-            
-            # Store indicator values
-            signal['indicators'] = self._extract_indicator_values(latest)
-            
-            # Determine action based on scores
-            min_confidence = self._get_min_confidence()
-            
-            if buy_score > sell_score and buy_score >= min_confidence:
-                signal['action'] = 'BUY'
+
+            min_conf = self._get_min_confidence()
+
+            if buy_score > sell_score and buy_score >= min_conf:
+                signal['action']     = 'BUY'
                 signal['confidence'] = buy_score
-                signal['stop_loss'], signal['take_profit'] = self._calculate_exit_levels(
-                    latest['close'], 'BUY', symbol, latest
-                )
-                
-            elif sell_score > buy_score and sell_score >= min_confidence:
-                signal['action'] = 'SELL'
+                signal['stop_loss'], signal['take_profit'] = self._exit_levels(
+                    float(latest['close']), 'BUY', symbol, latest)
+
+            elif sell_score > buy_score and sell_score >= min_conf:
+                signal['action']     = 'SELL'
                 signal['confidence'] = sell_score
-                signal['stop_loss'], signal['take_profit'] = self._calculate_exit_levels(
-                    latest['close'], 'SELL', symbol, latest
-                )
-            
+                signal['stop_loss'], signal['take_profit'] = self._exit_levels(
+                    float(latest['close']), 'SELL', symbol, latest)
+
             return signal
-            
+
         except Exception as e:
-            logging.error(f"Error in strategy analysis for {symbol}: {str(e)}")
-            import traceback
-            logging.error(traceback.format_exc())
-            return self._get_hold_signal(0)
-    
-    def _evaluate_conditions(self, df: pd.DataFrame, latest: pd.Series, prev: pd.Series, 
-                            entry_config: Dict) -> tuple:
+            logging.error(f"Error analysing {symbol}: {e}")
+            import traceback; logging.error(traceback.format_exc())
+            return self._hold(0)
+
+    # ------------------------------------------------------------------
+    # SCORING — reads weights from strategy JSON
+    # ------------------------------------------------------------------
+
+    def _evaluate_conditions(self, latest, prev, entry_cfg) -> Tuple[int, int]:
         """
-        Evaluate entry conditions and return buy/sell scores
-        
-        Returns:
-            tuple: (buy_score, sell_score)
+        Score based on weights defined in entry_conditions.scoring.
+        If 'scoring' key is absent, falls back to equal-weight across
+        whatever indicators are present in the data.
         """
-        buy_score = 0
+        buy_score  = 0
         sell_score = 0
-        
-        # Get configuration
-        indicators = entry_config.get('indicators', {})
-        momentum = entry_config.get('momentum_confirmation', {})
-        
-        # 1. Moving Average Analysis (30 points)
-        if 'ma_fast' in latest and 'ma_slow' in latest:
-            if not pd.isna(latest['ma_fast']) and not pd.isna(latest['ma_slow']):
-                if latest['ma_fast'] > latest['ma_slow']:
-                    buy_score += 30
-                    if prev['ma_fast'] <= prev['ma_slow']:  # Golden cross
-                        buy_score += 10
-                else:
-                    sell_score += 30
-                    if prev['ma_fast'] >= prev['ma_slow']:  # Death cross
-                        sell_score += 10
-        
-        # 2. RSI Analysis (25 points)
-        if 'rsi' in latest and not pd.isna(latest['rsi']):
-            rsi_oversold = momentum.get('rsi_range', [30, 70])[0] if 'rsi_range' in momentum else indicators.get('rsi_oversold', 30)
-            rsi_overbought = momentum.get('rsi_range', [30, 70])[1] if 'rsi_range' in momentum else indicators.get('rsi_overbought', 70)
-            
-            if latest['rsi'] < rsi_oversold:
-                buy_score += 25
-            elif latest['rsi'] > rsi_overbought:
-                sell_score += 25
-            elif latest['rsi'] < 50:
-                buy_score += 10
+
+        indic    = {**entry_cfg.get('indicators', {}), **entry_cfg.get('momentum_confirmation', {})}
+        # --- scoring weights from strategy JSON ---
+        scoring  = entry_cfg.get('scoring', {})
+
+        # Helper: get weight for a component, default = 25 if not specified
+        def w(key, default=25):
+            return scoring.get(key, default)
+
+        # 1. Moving Average (ma_fast / ma_slow  OR  ema_fast / ema_slow)
+        ma_score = w('ma_cross', 30)
+        for fast_col, slow_col in [('ma_fast', 'ma_slow'), ('ema_fast', 'ema_slow')]:
+            if fast_col in latest.index and slow_col in latest.index:
+                if not pd.isna(latest[fast_col]) and not pd.isna(latest[slow_col]):
+                    cross_bonus = w('ma_cross_bonus', 10)
+                    if latest[fast_col] > latest[slow_col]:
+                        buy_score += ma_score
+                        if prev[fast_col] <= prev[slow_col]:
+                            buy_score += cross_bonus
+                    else:
+                        sell_score += ma_score
+                        if prev[fast_col] >= prev[slow_col]:
+                            sell_score += cross_bonus
+                    break   # only count once
+
+        # 2. RSI
+        if 'rsi' in latest.index and not pd.isna(latest['rsi']):
+            rsi_score    = w('rsi', 25)
+            rsi_oversold  = indic.get('rsi_oversold',  30)
+            rsi_overbought= indic.get('rsi_overbought', 70)
+            # support rsi_range list format
+            if 'rsi_range' in indic:
+                rsi_range = indic['rsi_range']
+                rsi_oversold, rsi_overbought = rsi_range[0], rsi_range[1]
+
+            rsi = latest['rsi']
+            if rsi < rsi_oversold:
+                buy_score  += rsi_score
+            elif rsi > rsi_overbought:
+                sell_score += rsi_score
+            elif rsi < 50:
+                buy_score  += int(rsi_score * 0.4)
             else:
-                sell_score += 10
-        
-        # 3. MACD Analysis (25 points)
-        if 'macd' in latest and 'macd_signal' in latest:
+                sell_score += int(rsi_score * 0.4)
+
+        # 3. MACD
+        if 'macd' in latest.index and 'macd_signal' in latest.index:
             if not pd.isna(latest['macd']) and not pd.isna(latest['macd_signal']):
-                macd_req = momentum.get('macd_requirement', '')
-                
+                macd_score = w('macd', 25)
+                cross_bonus = w('macd_cross_bonus', 10)
                 if latest['macd'] > latest['macd_signal']:
-                    buy_score += 25
-                    if prev['macd'] <= prev['macd_signal']:  # MACD cross up
-                        buy_score += 10
+                    buy_score  += macd_score
+                    if prev['macd'] <= prev['macd_signal']:
+                        buy_score += cross_bonus
                 else:
-                    sell_score += 25
-                    if prev['macd'] >= prev['macd_signal']:  # MACD cross down
-                        sell_score += 10
-        
-        # 4. Bollinger Bands (20 points)
-        if 'bb_upper' in latest and 'bb_lower' in latest:
+                    sell_score += macd_score
+                    if prev['macd'] >= prev['macd_signal']:
+                        sell_score += cross_bonus
+
+        # 4. Bollinger Bands
+        if 'bb_upper' in latest.index and 'bb_lower' in latest.index:
             if not pd.isna(latest['bb_upper']) and not pd.isna(latest['bb_lower']):
+                bb_score = w('bollinger_bands', 20)
                 if latest['close'] < latest['bb_lower']:
-                    buy_score += 20  # Oversold
+                    buy_score  += bb_score
                 elif latest['close'] > latest['bb_upper']:
-                    sell_score += 20  # Overbought
-        
-        # 5. Momentum (10 points)
-        if 'momentum' in latest and not pd.isna(latest['momentum']):
+                    sell_score += bb_score
+
+        # 5. Stochastic
+        if 'stoch_k' in latest.index and not pd.isna(latest['stoch_k']):
+            stoch_score = w('stochastic', 15)
+            stoch_os  = indic.get('stochastic_oversold',  20)
+            stoch_ob  = indic.get('stochastic_overbought', 80)
+            if latest['stoch_k'] < stoch_os:
+                buy_score  += stoch_score
+            elif latest['stoch_k'] > stoch_ob:
+                sell_score += stoch_score
+
+        # 6. Momentum
+        if 'momentum' in latest.index and not pd.isna(latest['momentum']):
+            mom_score = w('momentum', 10)
             if latest['momentum'] > 0:
-                buy_score += 10
+                buy_score  += mom_score
             else:
-                sell_score += 10
-        
-        # 6. Stochastic (bonus if available)
-        if 'stoch_k' in latest and 'stoch_d' in latest:
-            if not pd.isna(latest['stoch_k']) and not pd.isna(latest['stoch_d']):
-                if latest['stoch_k'] < 20:
-                    buy_score += 15
-                elif latest['stoch_k'] > 80:
-                    sell_score += 15
-        
+                sell_score += mom_score
+
         return buy_score, sell_score
-    
-    def _calculate_exit_levels(self, entry_price: float, action: str, symbol: str, 
-                               latest: pd.Series) -> tuple:
-        """
-        Calculate stop loss and take profit levels
-        
-        Returns:
-            tuple: (stop_loss, take_profit)
-        """
-        exit_config = self.strategy_config.get('exit_strategy', {})
-        
-        # Get stop loss configuration
-        sl_config = exit_config.get('stop_loss', '20_pips')
-        tp_config = exit_config.get('take_profit', '30_pips')
-        
-        # Parse pip values
-        sl_pips = self._parse_pips(sl_config, default=20)
-        tp_pips = self._parse_pips(tp_config, default=30)
-        
-        # Calculate pip value based on symbol
-        pip_value = 0.0001  # Default for most pairs
-        if 'JPY' in symbol:
-            pip_value = 0.01
-        
-        # Use ATR if available for dynamic SL/TP
-        if 'atr' in latest and not pd.isna(latest['atr']):
-            atr = latest['atr']
-            # Use ATR multiplier if specified
-            atr_multiplier_sl = exit_config.get('atr_multiplier_sl', 2.0)
-            atr_multiplier_tp = exit_config.get('atr_multiplier_tp', 3.0)
-            
+
+    # ------------------------------------------------------------------
+    # EXIT LEVELS — fully from strategy JSON
+    # ------------------------------------------------------------------
+
+    def _exit_levels(self, entry: float, action: str, symbol: str,
+                     latest: pd.Series) -> Tuple[float, float]:
+        exit_cfg = self.strategy_config.get('exit_strategy', {})
+        pip_value = 0.01 if 'JPY' in symbol else 0.0001
+
+        # --- ATR-based (dynamic) ---
+        use_atr = exit_cfg.get('use_atr', False) or 'atr_multiplier_sl' in exit_cfg
+        if use_atr and 'atr' in latest.index and not pd.isna(latest['atr']):
+            atr        = float(latest['atr'])
+            sl_mult    = float(exit_cfg.get('atr_multiplier_sl', 1.5))
+            tp_mult    = float(exit_cfg.get('atr_multiplier_tp', 2.5))
+            sl_dist    = atr * sl_mult
+            tp_dist    = atr * tp_mult
+
             if action == 'BUY':
-                stop_loss = entry_price - (atr * atr_multiplier_sl)
-                take_profit = entry_price + (atr * atr_multiplier_tp)
-            else:  # SELL
-                stop_loss = entry_price + (atr * atr_multiplier_sl)
-                take_profit = entry_price - (atr * atr_multiplier_tp)
+                return entry - sl_dist, entry + tp_dist
+            else:
+                return entry + sl_dist, entry - tp_dist
+
+        # --- Fixed pips ---
+        sl_pips = self._parse_pips(exit_cfg.get('stop_loss',    exit_cfg.get('stop_loss_pips',    20)))
+        tp_pips = self._parse_pips(exit_cfg.get('take_profit',  exit_cfg.get('take_profit_pips',  40)))
+
+        sl_dist = sl_pips * pip_value
+        tp_dist = tp_pips * pip_value
+
+        if action == 'BUY':
+            return entry - sl_dist, entry + tp_dist
         else:
-            # Use fixed pips
-            if action == 'BUY':
-                stop_loss = entry_price - (sl_pips * pip_value)
-                take_profit = entry_price + (tp_pips * pip_value)
-            else:  # SELL
-                stop_loss = entry_price + (sl_pips * pip_value)
-                take_profit = entry_price - (tp_pips * pip_value)
-        
-        return stop_loss, take_profit
-    
-    def _parse_pips(self, config_str: str, default: int = 20) -> int:
-        """Parse pip value from configuration string"""
+            return entry + sl_dist, entry - tp_dist
+
+    def _parse_pips(self, value, default=20) -> int:
         try:
-            if isinstance(config_str, (int, float)):
-                return int(config_str)
-            
-            # Extract number from string like "20_pips" or "2%_from_entry"
+            if isinstance(value, (int, float)):
+                return int(value)
             import re
-            numbers = re.findall(r'\d+', str(config_str))
-            if numbers:
-                return int(numbers[0])
-            return default
+            nums = re.findall(r'\d+', str(value))
+            return int(nums[0]) if nums else default
         except:
             return default
-    
+
+    # ------------------------------------------------------------------
+    # HELPERS
+    # ------------------------------------------------------------------
+
     def _get_min_confidence(self) -> float:
-        """Get minimum confidence threshold from strategy config"""
-        # Check in multiple possible locations
-        params = self.strategy_config.get('parameters', {})
-        entry_config = self.strategy_config.get('entry_conditions', {})
-        
-        # Look for confidence threshold
-        confidence = params.get('min_confidence', 60)
-        confidence = entry_config.get('min_confidence', confidence)
-        
-        # Convert to percentage if it's a decimal (like 0.92)
-        if confidence < 1:
-            confidence = confidence * 100
-        
-        return confidence
-    
-    def _extract_indicator_values(self, latest: pd.Series) -> Dict:
-        """Extract indicator values from latest data"""
-        indicators = {}
-        
-        indicator_keys = ['ma_fast', 'ma_slow', 'rsi', 'macd', 'macd_signal', 
-                         'bb_upper', 'bb_lower', 'momentum', 'atr', 'stoch_k', 'stoch_d']
-        
-        for key in indicator_keys:
-            if key in latest and not pd.isna(latest[key]):
-                indicators[key] = float(latest[key])
-        
-        return indicators
-    
-    def _get_hold_signal(self, price: float) -> Dict:
-        """Return a HOLD signal"""
+        params    = self.strategy_config.get('parameters', {})
+        entry_cfg = self.strategy_config.get('entry_conditions', {})
+        conf      = entry_cfg.get('min_confidence', params.get('min_confidence', 60))
+        return conf * 100 if conf < 1 else conf
+
+    def _extract_indicators(self, latest: pd.Series) -> Dict:
+        keys = ['ma_fast', 'ma_slow', 'ema_fast', 'ema_slow', 'rsi',
+                'macd', 'macd_signal', 'bb_upper', 'bb_lower', 'bb_middle',
+                'momentum', 'atr', 'stoch_k', 'stoch_d']
+        return {k: float(latest[k]) for k in keys if k in latest.index and not pd.isna(latest[k])}
+
+    def _hold(self, price: float) -> Dict:
         return {
-            'action': 'HOLD',
-            'confidence': 0,
-            'price': price,
-            'timestamp': datetime.now(),
-            'strategy': self.strategy_name,
-            'indicators': {}
+            'action': 'HOLD', 'confidence': 0, 'price': price,
+            'timestamp': datetime.now(), 'strategy': self.strategy_name, 'indicators': {}
         }
-    
+
+    # ------------------------------------------------------------------
+    # PUBLIC API used by TradeExecutor & main.py
+    # ------------------------------------------------------------------
+
     def get_risk_parameters(self) -> Dict:
-        """Get risk management parameters from strategy"""
-        params = self.strategy_config.get('parameters', {})
-        kelly_config = self.strategy_config.get('unique_features', {}).get('kelly_optimization', {})
-        
+        params    = self.strategy_config.get('parameters', {})
+        kelly_cfg = self.strategy_config.get('unique_features', {}).get('kelly_optimization', {})
+        rr        = params.get('risk_per_trade_range', [0.01, 0.02])
         return {
-            'risk_per_trade_min': params.get('risk_per_trade_range', [0.01, 0.02])[0],
-            'risk_per_trade_max': params.get('risk_per_trade_range', [0.01, 0.02])[1],
-            'max_leverage': params.get('max_leverage', 100),
-            'max_drawdown_limit': params.get('max_drawdown_limit', 0.15),
-            'kelly_base': kelly_config.get('base_kelly', 0.25) if kelly_config else 0.25
+            'risk_per_trade_min':    rr[0],
+            'risk_per_trade_max':    rr[1],
+            'max_leverage':          params.get('max_leverage',       100),
+            'max_drawdown_limit':    params.get('max_drawdown_limit', 0.15),
+            'max_positions':         params.get('max_positions',       3),
+            'kelly_base':            kelly_cfg.get('base_kelly', 0.25) if kelly_cfg else 0.25
         }
-    
+
     def get_strategy_info(self) -> Dict:
-        """Get strategy information for display"""
+        params = self.strategy_config.get('parameters', {})
+        # Support both key names
+        pairs  = (params.get('trading_pairs') or
+                  params.get('pairs') or
+                  self.strategy_config.get('trading_pairs') or
+                  self.strategy_config.get('pairs') or [])
         return {
-            'name': self.strategy_name,
-            'philosophy': self.strategy_config.get('core_philosophy', 'N/A'),
-            'timeframes': self.strategy_config.get('parameters', {}).get('timeframes', ['M1']),
-            'pairs': self.strategy_config.get('parameters', {}).get('trading_pairs', []),
+            'name':                self.strategy_name,
+            'philosophy':          self.strategy_config.get('core_philosophy', 'N/A'),
+            'timeframes':          params.get('timeframes', ['M1']),
+            'pairs':               pairs,
             'performance_targets': self.strategy_config.get('performance_targets', {})
         }

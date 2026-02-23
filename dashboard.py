@@ -335,15 +335,23 @@ def print_dashboard():
     print("="*80)
 
 def main():
+    # Load broker config from yaml
+    try:
+        import yaml
+        with open('config/broker.yaml', 'r') as f:
+            cfg = yaml.safe_load(f)
+        broker = cfg.get('broker', {})
+        account  = int(broker.get('account', 0))
+        password = str(broker.get('password', ''))
+        server   = str(broker.get('server', ''))
+    except Exception as e:
+        print(f"[WARNING] Could not load broker.yaml: {e}")
+        account, password, server = 0, '', ''
+
     # Initialize MT5
     if not mt5.initialize():
         print("MT5 initialization failed")
         return
-    
-    # Login
-    account = 356000
-    password = "nag#IS5R1"
-    server = "FinexBisnisSolusi-Demo"
     
     if not mt5.login(account, password=password, server=server):
         print(f"Login failed: {mt5.last_error()}")

@@ -123,7 +123,7 @@ def collect_minute_data(data_collector, symbols, duration=60):
         logging.warning("No symbols to collect data for")
         return
     
-    logging.info(f"Starting 1-minute data collection for {len(symbols)} symbols...")
+    logging.info(f"Starting  data collection for {len(symbols)} symbols...")
     
     start_time = time.time()
     tick_count = {symbol: 0 for symbol in symbols}
@@ -585,6 +585,7 @@ def main():
             # Selalu sync trade_executor & verified symbols di awal setiap cycle,
             # baik reload dipicu dari sini MAUPUN dari dalam collect_minute_data.
             trade_executor.strategy_manager = current_strategy_manager
+            trade_executor.refresh_from_strategy()  # re-read risk params from new strategy
             verified_symbols = verify_symbols_availability(current_trading_symbols)
             if verified_symbols:
                 if verified_symbols != current_trading_symbols:

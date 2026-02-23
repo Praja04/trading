@@ -28,11 +28,24 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 # Create upload folder if not exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# MT5 Configuration
-MT5_ACCOUNT = 356000
-MT5_PASSWORD = "nag#IS5R1"
-MT5_SERVER = "FinexBisnisSolusi-Demo"
+# MT5 Configuration — read from broker.yaml (NOT hard-coded)
 DB_PATH = "data/database/trading_data.db"
+
+def _load_broker_config():
+    try:
+        with open('config/broker.yaml', 'r') as f:
+            cfg = yaml.safe_load(f)
+        broker = cfg.get('broker', {})
+        return (
+            int(broker.get('account', 0)),
+            str(broker.get('password', '')),
+            str(broker.get('server', ''))
+        )
+    except Exception as e:
+        print(f"[WARNING] Could not load broker.yaml: {e}")
+        return (0, '', '')
+
+MT5_ACCOUNT, MT5_PASSWORD, MT5_SERVER = _load_broker_config()
 
 # Initialize collectors
 news_collector = NewsCollector(DB_PATH)
