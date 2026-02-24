@@ -218,8 +218,12 @@ class TradeExecutor:
                         risk_pct += recovery
                         logging.info(f"Recovery mode +{recovery*100:.2f}%")
 
+            # Apply strategy-computed risk multiplier (DD recovery + vol scaling)
+            risk_multiplier = signal.get('risk_multiplier', 1.0)
+            risk_pct = risk_pct * risk_multiplier
+
             # Hard cap
-            risk_pct    = min(risk_pct, self.risk_per_trade_max)
+            risk_pct = min(risk_pct, self.risk_per_trade_max)
             risk_amount = balance * risk_pct
 
             sym_info    = mt5.symbol_info(symbol)

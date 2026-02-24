@@ -625,10 +625,26 @@ def main():
                         
                         logging.info(f"  📊 1-min Average - Bid: {avg_bid:.5f}, Ask: {avg_ask:.5f}, Spread: {avg_spread:.5f}")
                     
-                    # Analyze with strategy
-                    signal = current_strategy_manager.analyze(symbol, ohlc_data)
+                    # Get spread and equity for advanced features
+                    tick_info   = mt5.symbol_info_tick(symbol)
+                    cur_spread  = float(tick_info.ask - tick_info.bid) if tick_info else 0
+                    account_now = mt5.account_info()
+                    cur_equity  = float(account_now.equity)  if account_now else 0
+                    peak_equity = float(account_now.balance) if account_now else 0  # balance as proxy for peak
+
+                    # Analyze with strategy (passes context for advanced engines)
+                    signal = current_strategy_manager.analyze(
+                        symbol, ohlc_data,
+                        current_spread=cur_spread,
+                        current_equity=cur_equity,
+                        peak_equity=peak_equity
+                    )
                     
-                    logging.info(f"  🎯 Signal: {signal['action']} (Confidence: {signal['confidence']}%)")
+                    logging.info(f"  Signal: {signal['action']} (Confidence: {signal['confidence']}%)")
+                    if signal.get('hold_reason'):
+                        logging.info(f"  Hold reason: {signal['hold_reason']}")
+                    if signal.get('lim_score', 0) > 0:
+                        logging.info(f"  LIM score: {signal['lim_score']:.2f} | Risk mult: {signal.get('risk_multiplier',1):.2f}x")
                     
                     # Log key indicators
                     if signal['indicators']:
