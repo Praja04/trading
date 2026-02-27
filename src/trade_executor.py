@@ -142,7 +142,7 @@ class TradeExecutor:
                 "tp":           tp,
                 "deviation":    self.slippage,
                 "magic":        self.magic_number,
-                "comment":      f"{signal.get('strategy','?')}_{signal.get('confidence',0):.0f}",
+               "comment": f"{signal.get('strategy','?')}_{signal.get('confidence',0):.0f}"[:31],
                 "type_time":    mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
