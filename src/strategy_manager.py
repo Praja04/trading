@@ -235,15 +235,15 @@ class StrategyManager:
                 params.get('min_confidence', 60)
             )
 
-            n['atr_period']         = indic.get('atr_period', 14)
-            n['rsi_period']         = indic.get('rsi_period', 14)
-            n['rsi_oversold']       = indic.get('rsi_oversold', 30)
-            n['rsi_overbought']     = indic.get('rsi_overbought', 70)
-            n['macd_fast']          = indic.get('macd_fast', 12)
-            n['macd_slow']          = indic.get('macd_slow', 26)
-            n['macd_signal_period'] = indic.get('macd_signal', 9)
-            n['bb_period']          = indic.get('bb_period', 20)
-            n['bb_std']             = indic.get('bb_std_dev', 2.0)
+            n['atr_period']         = self._safe_period(indic.get('atr_period'), 14)
+            n['rsi_period']         = self._safe_period(indic.get('rsi_period'), 14)
+            n['rsi_oversold']       = self._safe_period(indic.get('rsi_oversold'), 30)
+            n['rsi_overbought']     = self._safe_period(indic.get('rsi_overbought'), 70)
+            n['macd_fast']          = self._safe_period(indic.get('macd_fast'), 12)
+            n['macd_slow']          = self._safe_period(indic.get('macd_slow'), 26)
+            n['macd_signal_period'] = self._safe_period(indic.get('macd_signal'), 9)
+            n['bb_period']          = self._safe_period(indic.get('bb_period'), 20)
+            n['bb_std']             = float(indic.get('bb_std_dev', 2.0) if not isinstance(indic.get('bb_std_dev'), dict) else 2.0)
 
             n['use_atr_exit']      = (
                 exit_cfg.get('use_atr', False) or 'atr_multiplier_sl' in exit_cfg
@@ -323,15 +323,15 @@ class StrategyManager:
                 ec    = self.strategy_config.get('entry_conditions', {})
                 indic = {**ec.get('indicators', {}), **ec.get('momentum_confirmation', {})}
                 if 'ma_fast' in indic:
-                    df['ma_fast'] = df['close'].rolling(int(indic['ma_fast'])).mean()
+                    df['ma_fast'] = df['close'].rolling(self._safe_period(indic['ma_fast'], 9)).mean()
                 if 'ma_slow' in indic:
-                    df['ma_slow'] = df['close'].rolling(int(indic['ma_slow'])).mean()
+                    df['ma_slow'] = df['close'].rolling(self._safe_period(indic['ma_slow'], 21)).mean()
                 if 'ema_fast' in indic:
-                    df['ema_fast'] = df['close'].ewm(span=int(indic['ema_fast']), adjust=False).mean()
+                    df['ema_fast'] = df['close'].ewm(span=self._safe_period(indic['ema_fast'], 9), adjust=False).mean()
                 if 'ema_slow' in indic:
-                    df['ema_slow'] = df['close'].ewm(span=int(indic['ema_slow']), adjust=False).mean()
+                    df['ema_slow'] = df['close'].ewm(span=self._safe_period(indic['ema_slow'], 21), adjust=False).mean()
                 if 'stochastic_period' in indic:
-                    st = self._calc_stoch(df, int(indic['stochastic_period']))
+                    st = self._calc_stoch(df, self._safe_period(indic['stochastic_period'], 14))
                     df['stoch_k'] = st['k']
                     df['stoch_d'] = st['d']
             else:
@@ -834,6 +834,27 @@ class StrategyManager:
     # ══════════════════════════════════════════════════════════════════
     # HELPERS
     # ══════════════════════════════════════════════════════════════════
+
+    def _safe_period(self, val, default: int) -> int:
+        """
+        Safely convert indicator config value ke int.
+        Handles: plain int/float, string '14', dict {'period': 14}, dict {'value': 14}
+        """
+        if val is None:
+            return default
+        if isinstance(val, dict):
+            for key in ('period', 'value', 'span', 'length', 'window'):
+                if key in val:
+                    return int(val[key])
+            first = next(iter(val.values()), default)
+            try:
+                return int(first)
+            except (TypeError, ValueError):
+                return default
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
 
     def _parse_pips(self, value, default=20) -> int:
         try:
