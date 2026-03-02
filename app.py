@@ -100,12 +100,83 @@ def load_symbols_from_config():
         print(f"Error loading symbols: {e}")
         return ["EURUSD.s", "GBPUSD.s", "USDJPY.s"]
 
+def find_symbol_in_mt5(base_symbol: str):
+    """
+    Cari symbol yang cocok di MT5 dengan berbagai format suffix broker.
+    Return: symbol_string yang valid, atau None.
+    """
+    clean = base_symbol.upper()
+    for suffix in ('.S', 'M', '.PRO', '.ECN', '.R', '.RAW', '.STP', '.STD', '.MINI', '.MICRO', '#'):
+        if clean.endswith(suffix):
+            clean = clean[:-len(suffix)]
+            break
+
+    candidates = [
+        base_symbol,
+        clean,
+        clean + 'm',
+        clean + '.s',
+        clean + '.S',
+        clean + 'pro',
+        clean + '.pro',
+        clean + '.ecn',
+        clean + '.r',
+        clean + '.raw',
+        clean + '#',
+    ]
+
+    for candidate in candidates:
+        info = mt5.symbol_info(candidate)
+        if info is not None:
+            return candidate
+
+    # Fallback: scan semua symbol MT5
+    try:
+        all_symbols = mt5.symbols_get()
+        if all_symbols:
+            for sym in all_symbols:
+                sym_clean = sym.name.upper()
+                for suffix in ('.S', 'M', '.PRO', '.ECN', '.R', '.RAW', '.STP', '.STD', '.MINI', '.MICRO', '#'):
+                    if sym_clean.endswith(suffix):
+                        sym_clean = sym_clean[:-len(suffix)]
+                        break
+                if sym_clean == clean:
+                    return sym.name
+    except Exception:
+        pass
+
+    return None
+
+
+def resolve_symbols_for_broker(symbols):
+    """
+    Resolve daftar symbols ke format yang dikenali broker MT5.
+    Misal: ['EURUSD', 'XAUUSD'] → ['EURUSDm', 'XAUUSDm']
+    """
+    if not init_mt5():
+        return symbols  # return as-is jika MT5 tidak connect
+
+    resolved = []
+    for sym in symbols:
+        found = find_symbol_in_mt5(sym)
+        if found:
+            if found != sym:
+                print(f"  Symbol resolved: {sym} → {found}")
+            resolved.append(found)
+        else:
+            print(f"  Symbol not found in MT5: {sym} (keeping original)")
+            resolved.append(sym)
+    return resolved
+
+
 def refresh_global_symbols():
     """Refresh symbols from current strategy state - call this after strategy upload"""
     global symbols_to_track
-    
+
     try:
-        symbols_to_track = load_symbols_from_config()
+        raw_symbols    = load_symbols_from_config()
+        # Auto-resolve ke format broker
+        symbols_to_track = resolve_symbols_for_broker(raw_symbols)
         print(f"🔄 SYMBOLS REFRESHED: {len(symbols_to_track)} pairs -> {symbols_to_track}")
         return symbols_to_track
     except Exception as e:
@@ -265,17 +336,17 @@ def get_realtime_ohlc(symbol):
 def get_all_symbols_realtime():
     """Get real-time data for all tracked symbols"""
     data = {}
-    
+
     for symbol in symbols_to_track:
         tick_data = get_realtime_tick(symbol)
         ohlc_data = get_realtime_ohlc(symbol)
-        
+
         if tick_data and ohlc_data:
             data[symbol] = {
                 'tick': tick_data,
                 'ohlc': ohlc_data
             }
-    
+
     return data
 
 def get_tick_history_from_db(symbol, minutes=60):
@@ -421,19 +492,37 @@ def api_realtime_symbol(symbol):
 def api_realtime_all():
     """Get real-time data for all tracked symbols"""
     try:
+        global symbols_to_track
         print(f"📊 API realtime/all called - Using {len(symbols_to_track)} symbols")
-        
+
+        # Jika belum ada data, coba refresh dulu
+        if not symbols_to_track:
+            symbols_to_track = refresh_global_symbols()
+
         data = {}
         for symbol in symbols_to_track:
             tick_data = get_realtime_tick(symbol)
             ohlc_data = get_realtime_ohlc(symbol)
-            
+
             if tick_data and ohlc_data:
                 data[symbol] = {
                     'tick': tick_data,
                     'ohlc': ohlc_data
                 }
-        
+
+        # Jika tidak ada data sama sekali, coba re-resolve symbols
+        if not data and symbols_to_track:
+            print("⚠ No live data found, attempting symbol re-resolution...")
+            resolved = resolve_symbols_for_broker(symbols_to_track)
+            for symbol in resolved:
+                tick_data = get_realtime_tick(symbol)
+                ohlc_data = get_realtime_ohlc(symbol)
+                if tick_data and ohlc_data:
+                    data[symbol] = {'tick': tick_data, 'ohlc': ohlc_data}
+            if data:
+                symbols_to_track = list(data.keys())
+                print(f"✓ Re-resolved symbols: {symbols_to_track}")
+
         return jsonify({
             'success': True,
             'data': data,

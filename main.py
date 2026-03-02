@@ -394,64 +394,103 @@ def reload_strategy():
         logging.error(traceback.format_exc())
         return False
 
+def find_symbol_in_mt5(base_symbol: str):
+    """
+    Cari symbol yang cocok di MT5 dengan berbagai format:
+    Contoh: 'EURUSD' → coba 'EURUSD', 'EURUSD.s', 'EURUSDm', 'EURUSD.pro', dll.
+    Return: (symbol_string, symbol_info) atau (None, None)
+    """
+    # Bersihkan suffix yang umum untuk dapatkan base
+    clean = base_symbol.upper()
+    for suffix in ('.S', 'M', '.PRO', '.ECN', '.R', '.RAW', '.STP', '.STD', '.MINI', '.MICRO'):
+        if clean.endswith(suffix):
+            clean = clean[:-len(suffix)]
+            break
+
+    # Daftar kandidat yang akan dicoba
+    candidates = [
+        base_symbol,          # original
+        clean,                # tanpa suffix
+        clean + '.s',         # dengan .s lowercase
+        clean + '.S',         # dengan .S uppercase
+        clean + 'm',          # dengan m
+        clean + 'pro',        # dengan pro
+        clean + '.pro',       # dengan .pro
+        clean + '.ecn',       # dengan .ecn
+        clean + '.r',         # dengan .r
+        clean + '.raw',       # dengan .raw
+    ]
+
+    # Coba satu per satu
+    for candidate in candidates:
+        info = mt5.symbol_info(candidate)
+        if info is not None:
+            return candidate, info
+
+    # Fallback: cari di semua symbols yang tersedia (partial match)
+    all_symbols = mt5.symbols_get()
+    if all_symbols:
+        for sym in all_symbols:
+            sym_clean = sym.name.upper()
+            for suffix in ('.S', 'M', '.PRO', '.ECN', '.R', '.RAW', '.STP', '.STD', '.MINI', '.MICRO'):
+                if sym_clean.endswith(suffix):
+                    sym_clean = sym_clean[:-len(suffix)]
+                    break
+            if sym_clean == clean:
+                return sym.name, sym
+
+    return None, None
+
+
 def verify_symbols_availability(symbols):
-    """Verify that all symbols are available in MT5"""
+    """Verify that all symbols are available in MT5 — auto-detect broker suffix."""
     if not symbols:
         logging.warning("No symbols to verify")
         return []
-    
+
     available_symbols = []
     unavailable_symbols = []
-    
+
     for symbol in symbols:
-        symbol_info = mt5.symbol_info(symbol)
-        if symbol_info is None:
-            # Try alternative format
-            if symbol.endswith('.s'):
-                alt_symbol = symbol[:-2]
-            else:
-                alt_symbol = f"{symbol}.s"
-            
-            alt_info = mt5.symbol_info(alt_symbol)
-            if alt_info:
-                symbol = alt_symbol
-                symbol_info = alt_info
-                logging.info(f"  ✓ Symbol format adjusted: {alt_symbol}")
-        
-        if symbol_info is None:
+        found_name, sym_info = find_symbol_in_mt5(symbol)
+
+        if found_name is None or sym_info is None:
             unavailable_symbols.append(symbol)
-            logging.error(f"  ✗ Symbol {symbol} not found in MT5!")
+            logging.error(f"  ✗ Symbol {symbol} not found in MT5 (tried all formats)!")
             continue
-        
+
+        if found_name != symbol:
+            logging.info(f"  ✓ Symbol format adjusted: {symbol} → {found_name}")
+
         # Enable symbol if not visible
-        if not symbol_info.visible:
-            if mt5.symbol_select(symbol, True):
-                logging.info(f"  ✓ Enabled symbol: {symbol}")
+        if not sym_info.visible:
+            if mt5.symbol_select(found_name, True):
+                logging.info(f"  ✓ Enabled symbol: {found_name}")
             else:
-                logging.error(f"  ✗ Failed to enable symbol: {symbol}")
+                logging.error(f"  ✗ Failed to enable symbol: {found_name}")
                 unavailable_symbols.append(symbol)
                 continue
-        
-        available_symbols.append(symbol)
-        logging.info(f"  ✓ Symbol available: {symbol}")
-    
+
+        available_symbols.append(found_name)
+        logging.info(f"  ✓ Symbol available: {found_name}")
+
     # Summary
     logging.info("="*60)
     logging.info(f"SYMBOL VERIFICATION SUMMARY:")
     logging.info(f"Total symbols in strategy: {len(symbols)}")
     logging.info(f"Available symbols: {len(available_symbols)}")
     logging.info(f"Unavailable symbols: {len(unavailable_symbols)}")
-    
+
     if unavailable_symbols:
         logging.warning(f"Unavailable symbols: {unavailable_symbols}")
-    
+
     if not available_symbols:
-        logging.error("❌ No symbols available for trading!")
+        logging.error("No symbols available for trading!")
         return []
-    
+
     logging.info(f"Trading with symbols: {available_symbols}")
     logging.info("="*60)
-    
+
     return available_symbols
 
 def main():
