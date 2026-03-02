@@ -133,6 +133,9 @@ class TradeExecutor:
 
             lot = self.calculate_position_size(symbol, price, sl, signal)
 
+            # Auto-detect filling mode yang didukung broker
+            filling_mode = self._get_filling_mode(symbol)
+
             request = {
                 "action":       mt5.TRADE_ACTION_DEAL,
                 "symbol":       symbol,
@@ -145,7 +148,7 @@ class TradeExecutor:
                 "magic":        self.magic_number,
                 "comment":      "Bot v12",
                 "type_time":    mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
+                "type_filling": filling_mode,
             }
 
             result = mt5.order_send(request)
@@ -300,6 +303,29 @@ class TradeExecutor:
         except Exception as e:
             logging.error(f"Error calculating position size: {e}")
             return self._min_lot(symbol)
+
+    def _get_filling_mode(self, symbol: str):
+        """
+        Auto-detect filling mode yang didukung broker untuk symbol ini.
+        Exness dan banyak broker pakai FOK. Beberapa pakai IOC atau Return.
+        """
+        try:
+            info = mt5.symbol_info(symbol)
+            if info is None:
+                return mt5.ORDER_FILLING_FOK
+
+            filling = info.filling_mode  # bitmask: 1=FOK, 2=IOC, 4=Return
+
+            if filling & 1:   # FOK didukung
+                return mt5.ORDER_FILLING_FOK
+            elif filling & 2: # IOC didukung
+                return mt5.ORDER_FILLING_IOC
+            elif filling & 4: # Return didukung
+                return mt5.ORDER_FILLING_RETURN
+            else:
+                return mt5.ORDER_FILLING_FOK  # fallback
+        except Exception:
+            return mt5.ORDER_FILLING_FOK
 
     def _min_lot(self, symbol: str) -> float:
         try:
