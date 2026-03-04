@@ -347,6 +347,15 @@ class TradeExecutor:
             for pos in positions:
                 profit = pos.profit
                 total_profit += profit
+
+                # Force close posisi yang bleeding terlalu dalam
+                if profit <= self.max_single_position_loss:
+                    logging.warning(
+                        f"[MaxLoss] {pos.symbol} ticket={pos.ticket} "
+                        f"profit=${profit:.2f} <= limit=${self.max_single_position_loss:.2f} — FORCE CLOSE"
+                    )
+                    self.close_position(pos)
+                    continue
                 if 'JPY' in pos.symbol:
                     pips = (pos.price_current - pos.price_open) * 100 if pos.type == 0 \
                            else (pos.price_open - pos.price_current) * 100

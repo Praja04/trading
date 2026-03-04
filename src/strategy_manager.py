@@ -117,6 +117,8 @@ class StrategyManager:
             n['portfolio_heat_cap_weekday']  = rm.get('portfolio_heat_cap_weekday', 0.032)
             n['portfolio_heat_cap_weekend']  = rm.get('portfolio_heat_cap_weekend', 0.018)
             n['portfolio_heat_cap']          = rm.get('portfolio_heat_cap_weekday', 0.032)
+            n['daily_profit_target']         = rm.get('daily_profit_target',        0.0)
+            n['max_single_position_loss']    = rm.get('max_single_position_loss',   -5.0)
 
             # ── GENERAL ────────────────────────────────────────────
             gp = cfg.get('general_parameters', {})
@@ -130,7 +132,7 @@ class StrategyManager:
                 gp.get('trend_timeframe',     'M15'),
             ]
 
-            n['min_confidence'] = 55
+            n['min_confidence'] = gp.get('min_confidence', 65)
 
             # ── INDICATORS ─────────────────────────────────────────
             n['atr_period']         = 14
@@ -202,6 +204,11 @@ class StrategyManager:
             n['weekend_shield_enabled'] = ws.get('enabled', True)
             n['weekend_hours_before']   = ws.get('activation_hours_before_close', 4)
             n['weekend_reduce_pct']     = ws.get('reduce_profitable_positions_percentage', 0.7)
+
+            # ── SESSION FILTER ─────────────────────────────────────
+            sf = cfg.get('session_filter', {})
+            n['session_filter_enabled']  = sf.get('enabled', False)
+            n['blocked_sessions']        = sf.get('blocked_sessions', [])
 
             # ── NEWS BLOCK ─────────────────────────────────────────
             sse = cfg.get('surprise_score_engine', {})
@@ -588,6 +595,41 @@ class StrategyManager:
             return n.get('portfolio_heat_cap_weekend', n.get('portfolio_heat_cap', 0.032))
         return n.get('portfolio_heat_cap_weekday', n.get('portfolio_heat_cap', 0.032))
 
+    def check_session_filter(self) -> bool:
+        """Blokir trading saat sesi berbahaya (London open, NY open, dll)."""
+        n = self._norm
+        if not n.get('session_filter_enabled', False):
+            return True
+        try:
+            from datetime import timezone
+            now_utc = datetime.now(timezone.utc)
+            now_str = now_utc.strftime('%H:%M')
+            for session in n.get('blocked_sessions', []):
+                start = session.get('start_utc', '00:00')
+                end   = session.get('end_utc',   '00:00')
+                name  = session.get('name', 'unknown')
+                if start <= now_str <= end:
+                    logging.info(f"[SessionFilter] BLOCKED — {name} ({start}-{end} UTC)")
+                    return False
+            return True
+        except Exception as e:
+            logging.debug(f"SessionFilter error: {e}")
+            return True
+
+    def check_daily_profit_target(self, current_equity: float, balance: float) -> bool:
+        """Return False (HOLD) jika floating profit harian sudah mencapai target."""
+        n = self._norm
+        target = n.get('daily_profit_target', 0.0)
+        if target <= 0:
+            return True
+        daily_profit = current_equity - balance
+        if daily_profit >= target:
+            logging.info(
+                f"[DailyTarget] Profit ${daily_profit:.2f} >= target ${target:.2f} — STOP trading hari ini"
+            )
+            return False
+        return True
+
     def check_news_block(self, symbol: str) -> bool:
         n = self._norm
         if not n.get('news_block_enabled', False):
@@ -958,6 +1000,15 @@ class StrategyManager:
             if not self.check_weekend_shield():
                 return self._hold(float(latest['close']), "weekend_shield")
 
+            # ── Gate 1b: Session Filter ─────────────────────────────
+            if not self.check_session_filter():
+                return self._hold(float(latest['close']), "session_filter_block")
+
+            # ── Gate 1c: Daily Profit Target ────────────────────────
+            if current_equity > 0 and peak_equity > 0:
+                if not self.check_daily_profit_target(current_equity, peak_equity):
+                    return self._hold(float(latest['close']), "daily_profit_target_reached")
+
             # ── Gate 2: News Block ──────────────────────────────────
             if not self.check_news_block(symbol):
                 return self._hold(float(latest['close']), "news_block")
@@ -1242,7 +1293,9 @@ class StrategyManager:
             'max_positions':        n['max_positions'],
             'portfolio_heat_cap':   self.get_portfolio_heat_cap(),
             'kelly_base':           kelly_cfg.get('base_kelly', 0.25) if kelly_cfg else 0.25,
-            'compounding':          n.get('compounding', False),
+            'compounding':              n.get('compounding', False),
+            'max_single_position_loss': n.get('max_single_position_loss', -5.0),
+            'daily_profit_target':      n.get('daily_profit_target', 0.0),
         }
 
     def get_strategy_info(self) -> Dict:
