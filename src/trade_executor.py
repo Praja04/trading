@@ -54,19 +54,21 @@ class TradeExecutor:
     def _refresh_risk_params(self):
         if self.strategy_manager:
             rp = self.strategy_manager.get_risk_parameters()
-            self.risk_per_trade_min = rp['risk_per_trade_min']
-            self.risk_per_trade_max = rp['risk_per_trade_max']
-            self.max_leverage       = rp['max_leverage']
-            self.max_drawdown_limit = rp['max_drawdown_limit']
-            self.max_positions      = rp.get('max_positions', 6)
-            self.compounding        = rp.get('compounding', False)
+            self.risk_per_trade_min       = rp['risk_per_trade_min']
+            self.risk_per_trade_max       = rp['risk_per_trade_max']
+            self.max_leverage             = rp['max_leverage']
+            self.max_drawdown_limit       = rp['max_drawdown_limit']
+            self.max_positions            = rp.get('max_positions', 6)
+            self.compounding              = rp.get('compounding', False)
+            self.max_single_position_loss = rp.get('max_single_position_loss', -5.0)
         else:
-            self.risk_per_trade_min = 0.003
-            self.risk_per_trade_max = 0.010
-            self.max_leverage       = 100
-            self.max_drawdown_limit = 0.04
-            self.max_positions      = 6
-            self.compounding        = False
+            self.risk_per_trade_min       = 0.003
+            self.risk_per_trade_max       = 0.010
+            self.max_leverage             = 100
+            self.max_drawdown_limit       = 0.04
+            self.max_positions            = 6
+            self.compounding              = False
+            self.max_single_position_loss = -5.0
 
     # ------------------------------------------------------------------
     # EXECUTE SIGNAL
