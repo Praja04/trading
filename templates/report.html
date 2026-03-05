@@ -563,12 +563,12 @@ function setRange(days) {
 setRange(30); // default
 
 // ── Helpers ────────────────────────────────────────────────────────────
-const usd = v => {
-  const n = parseFloat(v)||0;
-  return (n>=0?'+':'') + '$' + Math.abs(n).toFixed(2);
-};
-const usdAbs = v => '$' + (parseFloat(v)||0).toFixed(2);
-const pct = v => (parseFloat(v)||0).toFixed(1)+'%';
+function usd(v) {
+  var n = parseFloat(v) || 0;
+  return (n >= 0 ? '+' : '') + '$' + Math.abs(n).toFixed(2);
+}
+function usdAbs(v) { return '$' + (parseFloat(v) || 0).toFixed(2); }
+function pct(v)    { return (parseFloat(v) || 0).toFixed(1) + '%'; }
 
 function tradeReason(trade) {
   const t   = trade.type;
