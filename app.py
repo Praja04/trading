@@ -1311,5 +1311,138 @@ if os.path.exists(state_file):
 
 print("="*80)
 
+
+# ======================================================================
+# TRADING REPORT API — date range summary
+# ======================================================================
+
+@app.route('/api/report')
+def api_report():
+    """Get trading report for a custom date range"""
+    try:
+        start_date = request.args.get('start_date')  # YYYY-MM-DD
+        end_date   = request.args.get('end_date')    # YYYY-MM-DD
+
+        if not start_date or not end_date:
+            return jsonify({'success': False, 'error': 'start_date and end_date required'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT ticket, symbol, type, volume, open_price, close_price,
+                   open_time, close_time, profit, commission, swap, comment, duration_seconds
+            FROM trade_history
+            WHERE date(close_time) >= ? AND date(close_time) <= ?
+            ORDER BY close_time DESC
+        """, (start_date, end_date))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        trades = []
+        for r in rows:
+            profit = r[8] or 0
+            commission = r[9] or 0
+            swap = r[10] or 0
+            net = profit + commission + swap
+            duration_s = r[12] or 0
+            h = duration_s // 3600
+            m = (duration_s % 3600) // 60
+
+            # Generate reason from available data
+            reason = _generate_trade_reason(r[1], r[2], r[4], r[5], profit)
+
+            trades.append({
+                'ticket':      r[0],
+                'symbol':      r[1],
+                'type':        r[2],
+                'volume':      r[3],
+                'open_price':  r[4],
+                'close_price': r[5],
+                'open_time':   r[6],
+                'close_time':  r[7],
+                'profit':      profit,
+                'commission':  commission,
+                'swap':        swap,
+                'net':         net,
+                'comment':     r[11],
+                'duration':    f"{h}h {m}m",
+                'reason':      reason,
+            })
+
+        # Summary stats
+        winning = [t for t in trades if t['profit'] > 0]
+        losing  = [t for t in trades if t['profit'] < 0]
+        total_profit = sum(t['profit'] for t in winning)
+        total_loss   = abs(sum(t['profit'] for t in losing))
+        net_profit   = sum(t['net'] for t in trades)
+
+        # Per-symbol breakdown
+        by_symbol = {}
+        for t in trades:
+            s = t['symbol']
+            if s not in by_symbol:
+                by_symbol[s] = {'trades': 0, 'wins': 0, 'net': 0}
+            by_symbol[s]['trades'] += 1
+            by_symbol[s]['net'] += t['net']
+            if t['profit'] > 0:
+                by_symbol[s]['wins'] += 1
+
+        for s in by_symbol:
+            n = by_symbol[s]['trades']
+            by_symbol[s]['win_rate'] = round(by_symbol[s]['wins'] / n * 100, 1) if n else 0
+
+        return jsonify({
+            'success': True,
+            'period': {'start': start_date, 'end': end_date},
+            'summary': {
+                'total_trades':  len(trades),
+                'winning':       len(winning),
+                'losing':        len(losing),
+                'win_rate':      round(len(winning) / len(trades) * 100, 1) if trades else 0,
+                'net_profit':    round(net_profit, 2),
+                'total_profit':  round(total_profit, 2),
+                'total_loss':    round(total_loss, 2),
+                'profit_factor': round(total_profit / total_loss, 2) if total_loss > 0 else 0,
+                'avg_win':       round(total_profit / len(winning), 2) if winning else 0,
+                'avg_loss':      round(total_loss / len(losing), 2) if losing else 0,
+            },
+            'by_symbol': by_symbol,
+            'trades': trades
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+def _generate_trade_reason(symbol, trade_type, open_price, close_price, profit):
+    """Generate a human-readable reason for why a trade was opened."""
+    reasons = []
+
+    # Direction reasoning
+    if trade_type == 'BUY':
+        reasons.append(f"Bot detected bullish signal on {symbol}")
+        reasons.append("EMA crossover upward / RSI oversold recovery")
+    else:
+        reasons.append(f"Bot detected bearish signal on {symbol}")
+        reasons.append("EMA crossover downward / RSI overbought pullback")
+
+    # Result
+    if profit > 0:
+        pips = abs(close_price - open_price)
+        reasons.append(f"Trade closed in profit (TP hit or manual close)")
+    elif profit < 0:
+        reasons.append(f"Trade closed at loss (SL hit or market reversal)")
+    else:
+        reasons.append("Trade closed at breakeven")
+
+    return " | ".join(reasons)
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+@app.route('/report')
+def report_page():
+    """Serve the trading report page (same templates folder as dashboard)"""
+    return render_template('report.html')

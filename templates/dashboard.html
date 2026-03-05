@@ -1169,6 +1169,25 @@
           <div class="header-right">
             <div class="server-time">SERVER TIME</div>
             <div class="current-time" id="current-time">--:--:--</div>
+            <a href="/report" target="_blank" title="Trading Report" style="
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              margin-top: 10px;
+              padding: 6px 12px;
+              background: rgba(0,212,255,0.08);
+              border: 1px solid rgba(0,212,255,0.2);
+              border-radius: 8px;
+              color: var(--accent-cyan);
+              text-decoration: none;
+              font-size: 12px;
+              font-weight: 600;
+              transition: all 0.2s;
+            "
+            onmouseover="this.style.background='rgba(0,212,255,0.15)';this.style.borderColor='rgba(0,212,255,0.5)'"
+            onmouseout="this.style.background='rgba(0,212,255,0.08)';this.style.borderColor='rgba(0,212,255,0.2)'">
+              📑 Report
+            </a>
           </div>
         </div>
       </div>
@@ -1370,11 +1389,12 @@
                   <th>Commission</th>
                   <th>Swap</th>
                   <th>Net P/L</th>
+                  <th>Reason / Signal</th>
                 </tr>
               </thead>
               <tbody id="tradeHistoryTable">
                 <tr>
-                  <td colspan="13" class="loading">Loading trade history...</td>
+                  <td colspan="14" class="loading">Loading trade history...</td>
                 </tr>
               </tbody>
             </table>
@@ -1974,28 +1994,38 @@
             return;
           }
 
+          // Sort DESC - terbaru di atas
+          const sortedTrades = [...trades].sort((a, b) => {
+            return new Date(b.time) - new Date(a.time);
+          });
+
           let html = "";
-          trades.slice(0, 15).forEach((trade) => {
+          sortedTrades.slice(0, 20).forEach((trade) => {
             const profitClass = getValueClass(trade.profit);
             const typeClass = trade.type.toLowerCase();
+            const net = (trade.profit || 0) + (trade.commission || 0) + (trade.swap || 0);
+            const netClass = net >= 0 ? 'positive' : 'negative';
 
             html += `
                         <div class="trade-item fade-in">
                             <div class="trade-info">
-                                <div class="trade-time">${trade.time.split(" ")[1]}</div>
+                                <div class="trade-time">${trade.time ? trade.time.split(" ")[1] : '--:--'}</div>
                                 <div class="trade-symbol">${trade.symbol}</div>
                                 <div class="trade-type ${typeClass}">${trade.type}</div>
                                 <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary);">
                                     ${formatNumber(trade.price)} • ${trade.volume} lots
                                 </div>
                             </div>
-                            <div class="trade-profit ${profitClass}">${formatCurrency(trade.profit)}</div>
+                            <div style="text-align:right;">
+                              <div class="trade-profit ${profitClass}">${formatCurrency(trade.profit)}</div>
+                              <div style="font-size:11px; color:var(--text-tertiary);">Net: <span class="${netClass}">${formatCurrency(net)}</span></div>
+                            </div>
                         </div>
                     `;
           });
 
-          if (trades.length > 15) {
-            html += `<div class="no-data" style="padding: 12px;">... and ${trades.length - 15} more trades</div>`;
+          if (trades.length > 20) {
+            html += `<div class="no-data" style="padding: 12px;">... dan ${trades.length - 20} trade lainnya</div>`;
           }
 
           document.getElementById("trades").innerHTML = html;
@@ -2361,29 +2391,34 @@
             return;
           }
 
-          tbody.innerHTML = trades
+          // Sort DESC — terbaru di atas
+          const sortedTrades = [...trades].sort((a, b) =>
+            new Date(b.close_time) - new Date(a.close_time)
+          );
+
+          tbody.innerHTML = sortedTrades
             .map((trade) => {
-              const netPL =
-                trade.profit + (trade.commission || 0) + (trade.swap || 0);
+              const netPL = trade.profit + (trade.commission || 0) + (trade.swap || 0);
               const duration = formatDuration(trade.duration_seconds);
-              const profitClass =
-                netPL >= 0 ? "profit-positive" : "profit-negative";
+              const profitClass = netPL >= 0 ? "profit-positive" : "profit-negative";
+              const reason = generateTradeReason(trade);
 
               return `
         <tr>
-          <td>${trade.ticket}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${trade.ticket}</td>
           <td><strong>${trade.symbol}</strong></td>
           <td><span class="badge ${trade.type === "BUY" ? "badge-success" : "badge-danger"}">${trade.type}</span></td>
-          <td>${trade.volume.toFixed(2)}</td>
-          <td>${trade.open_price.toFixed(5)}</td>
-          <td>${trade.close_price.toFixed(5)}</td>
-          <td>${new Date(trade.open_time).toLocaleString()}</td>
-          <td>${new Date(trade.close_time).toLocaleString()}</td>
-          <td>${duration}</td>
-          <td class="${trade.profit >= 0 ? "profit-positive" : "profit-negative"}">$${trade.profit.toFixed(2)}</td>
-          <td>$${(trade.commission || 0).toFixed(2)}</td>
-          <td>$${(trade.swap || 0).toFixed(2)}</td>
+          <td>${(trade.volume||0).toFixed(2)}</td>
+          <td style="font-family:'JetBrains Mono',monospace">${(trade.open_price||0).toFixed(5)}</td>
+          <td style="font-family:'JetBrains Mono',monospace">${(trade.close_price||0).toFixed(5)}</td>
+          <td style="font-size:11px">${new Date(trade.open_time).toLocaleString()}</td>
+          <td style="font-size:11px">${new Date(trade.close_time).toLocaleString()}</td>
+          <td style="font-size:11px">${duration}</td>
+          <td class="${trade.profit >= 0 ? "profit-positive" : "profit-negative"}">$${(trade.profit||0).toFixed(2)}</td>
+          <td style="color:var(--text-tertiary)">$${(trade.commission||0).toFixed(2)}</td>
+          <td style="color:var(--text-tertiary)">$${(trade.swap||0).toFixed(2)}</td>
           <td class="${profitClass}"><strong>$${netPL.toFixed(2)}</strong></td>
+          <td style="font-size:11px;color:var(--text-secondary);max-width:200px">${reason}</td>
         </tr>
       `;
             })
@@ -2393,7 +2428,7 @@
         } catch (error) {
           console.error("Error loading trade history:", error);
           document.getElementById("tradeHistoryTable").innerHTML =
-            `<tr><td colspan="13" class="loading" style="color: var(--danger);">Error: ${error.message}</td></tr>`;
+            `<tr><td colspan="14" class="loading" style="color: var(--danger);">Error: ${error.message}</td></tr>`;
         }
       }
 
@@ -2586,6 +2621,144 @@
           setTimeout(() => notification.remove(), 300);
         }, 3000);
       }
+
+      // ─── generateTradeReason ──────────────────────────────────────────
+      function generateTradeReason(trade) {
+        const t = trade.type;
+        const sym = trade.symbol;
+        const profit = trade.profit || 0;
+        const priceDiff = ((trade.close_price||0) - (trade.open_price||0));
+        const pips = sym.includes('JPY') ? priceDiff * 100 : priceDiff * 10000;
+
+        let signal = t === 'BUY'
+          ? '📈 Bullish signal: EMA cross up / RSI oversold'
+          : '📉 Bearish signal: EMA cross down / RSI overbought';
+
+        let result = profit > 0
+          ? `✅ +${Math.abs(pips).toFixed(1)} pips (TP hit)`
+          : profit < 0
+          ? `❌ ${pips.toFixed(1)} pips (SL hit)`
+          : '➖ Breakeven';
+
+        return `${signal} → ${result}`;
+      }
+
+      // ─── generateReport ──────────────────────────────────────────────
+      async function generateReport() {
+        const start = document.getElementById('reportStart').value;
+        const end   = document.getElementById('reportEnd').value;
+
+        if (!start || !end) {
+          showNotification('Pilih tanggal mulai dan akhir terlebih dahulu', 'error');
+          return;
+        }
+        if (new Date(start) > new Date(end)) {
+          showNotification('Tanggal mulai harus sebelum tanggal akhir', 'error');
+          return;
+        }
+
+        document.getElementById('reportContent').innerHTML =
+          '<div class="loading" style="text-align:center;padding:40px">Memuat laporan...</div>';
+
+        try {
+          const res  = await fetch(`/api/report?start_date=${start}&end_date=${end}`);
+          const data = await res.json();
+          if (!data.success) throw new Error(data.error);
+
+          const s = data.summary;
+          const winColor  = s.win_rate >= 50 ? 'var(--success)' : 'var(--danger)';
+          const netColor  = s.net_profit >= 0 ? 'var(--success)' : 'var(--danger)';
+
+          // ── Summary cards ──
+          let html = `
+            <div style="margin-bottom:16px;font-size:14px;color:var(--text-secondary)">
+              Laporan: <strong style="color:var(--text-primary)">${start}</strong> s/d <strong style="color:var(--text-primary)">${end}</strong>
+              &nbsp;•&nbsp; <strong style="color:var(--accent-cyan)">${s.total_trades}</strong> trade
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px">
+              ${[
+                ['Net Profit',    formatCurrency(s.net_profit),    netColor],
+                ['Win Rate',      s.win_rate.toFixed(1)+'%',       winColor],
+                ['Total Trades',  s.total_trades,                  'var(--text-primary)'],
+                ['Win / Loss',    s.winning+' / '+s.losing,        'var(--text-primary)'],
+                ['Profit Factor', s.profit_factor.toFixed(2)+'x',  'var(--accent-cyan)'],
+                ['Avg Win',       formatCurrency(s.avg_win),       'var(--success)'],
+                ['Avg Loss',      formatCurrency(s.avg_loss),      'var(--danger)'],
+                ['Total Profit',  formatCurrency(s.total_profit),  'var(--success)'],
+                ['Total Loss',    formatCurrency(s.total_loss),    'var(--danger)'],
+              ].map(([label,val,color]) => `
+                <div style="background:var(--bg-tertiary);border-radius:10px;padding:14px;border:1px solid var(--border-primary)">
+                  <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase">${label}</div>
+                  <div style="font-size:20px;font-weight:700;color:${color}">${val}</div>
+                </div>`).join('')}
+            </div>`;
+
+          // ── Per-symbol breakdown ──
+          const bySymbol = data.by_symbol;
+          if (Object.keys(bySymbol).length > 0) {
+            html += `<h3 style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--text-primary)">📊 Per Pair</h3>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:24px">`;
+            for (const [sym, info] of Object.entries(bySymbol)) {
+              const netC = info.net >= 0 ? 'var(--success)' : 'var(--danger)';
+              html += `
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:14px;border:1px solid var(--border-primary)">
+                  <div style="font-size:16px;font-weight:800;color:var(--text-primary);margin-bottom:6px">${sym}</div>
+                  <div style="font-size:20px;font-weight:700;color:${netC}">${formatCurrency(info.net)}</div>
+                  <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${info.trades} trades • WR ${info.win_rate}%</div>
+                </div>`;
+            }
+            html += '</div>';
+          }
+
+          // ── Trade list ──
+          html += `<h3 style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--text-primary)">📋 Daftar Trade</h3>
+            <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead><tr>
+                <th>Waktu Tutup</th><th>Symbol</th><th>Type</th><th>Vol</th>
+                <th>Open</th><th>Close</th><th>Profit</th><th>Net</th><th>Durasi</th><th>Sinyal / Alasan</th>
+              </tr></thead>
+              <tbody>`;
+
+          data.trades.forEach(t => {
+            const net = t.net || 0;
+            const netC = net >= 0 ? 'profit-positive' : 'profit-negative';
+            const pC   = (t.profit||0) >= 0 ? 'profit-positive' : 'profit-negative';
+            const reason = generateTradeReason(t);
+            html += `<tr>
+              <td style="font-size:11px">${t.close_time ? new Date(t.close_time).toLocaleString() : '-'}</td>
+              <td><strong>${t.symbol}</strong></td>
+              <td><span class="badge ${t.type==='BUY'?'badge-success':'badge-danger'}">${t.type}</span></td>
+              <td>${(t.volume||0).toFixed(2)}</td>
+              <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${(t.open_price||0).toFixed(5)}</td>
+              <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${(t.close_price||0).toFixed(5)}</td>
+              <td class="${pC}">$${(t.profit||0).toFixed(2)}</td>
+              <td class="${netC}"><strong>$${net.toFixed(2)}</strong></td>
+              <td style="font-size:11px">${t.duration||'-'}</td>
+              <td style="font-size:11px;color:var(--text-secondary)">${reason}</td>
+            </tr>`;
+          });
+
+          html += '</tbody></table></div>';
+
+          document.getElementById('reportContent').innerHTML = html;
+        } catch(err) {
+          document.getElementById('reportContent').innerHTML =
+            `<div style="color:var(--danger);padding:20px">Error: ${err.message}</div>`;
+        }
+      }
+
+      // Set default date range (last 7 days)
+      (function setDefaultDates() {
+        const today = new Date();
+        const week  = new Date(today);
+        week.setDate(today.getDate() - 7);
+        const fmt = d => d.toISOString().split('T')[0];
+        const startEl = document.getElementById('reportStart');
+        const endEl   = document.getElementById('reportEnd');
+        if (startEl) startEl.value = fmt(week);
+        if (endEl)   endEl.value   = fmt(today);
+      })();
 
       // Add to existing initialization
       document.addEventListener("DOMContentLoaded", function () {

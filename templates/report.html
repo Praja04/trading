@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Report — MT5 Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:        #080c12;
+      --bg2:       #0e1420;
+      --bg3:       #141c2a;
+      --card:      #111827;
+      --border:    rgba(255,255,255,0.07);
+      --cyan:      #00d4ff;
+      --purple:    #7b61ff;
+      --green:     #00e676;
+      --red:       #ff3d71;
+      --yellow:    #ffb300;
+      --text:      #f0f4ff;
+      --text2:     #8898aa;
+      --text3:     #3d4f6b;
+      --glow-c:    rgba(0,212,255,0.15);
+      --glow-p:    rgba(123,97,255,0.15);
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      font-family: 'Space Grotesk', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Top Bar ── */
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text2);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: all .2s;
+    }
+
+    .back-btn:hover {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: rgba(0,212,255,0.05);
+    }
+
+    .topbar-title {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .topbar-right {
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    /* ── Main Layout ── */
+    .main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+
+    /* ── Filter Bar ── */
+    .filter-bar {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px 28px;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-bar label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    .filter-bar input[type="date"] {
+      padding: 10px 14px;
+      background: var(--bg3);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+
+    .filter-bar input[type="date"]:focus {
+      border-color: var(--cyan);
+    }
+
+    .shortcut-btns {
+      display: flex;
+      gap: 8px;
+    }
+
+    .shortcut-btn {
+      padding: 8px 14px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text2);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+    }
+
+    .shortcut-btn:hover, .shortcut-btn.active {
+      background: rgba(0,212,255,0.1);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    .generate-btn {
+      margin-left: auto;
+      padding: 11px 28px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .3s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .generate-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(0,212,255,0.3);
+    }
+
+    .generate-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ── Empty / Loading state ── */
+    .state-box {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text3);
+    }
+
+    .state-box .icon { font-size: 48px; margin-bottom: 16px; }
+    .state-box p { font-size: 14px; }
+
+    /* ── Summary Cards ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .s-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      position: relative;
+      overflow: hidden;
+      transition: transform .2s;
+    }
+
+    .s-card:hover { transform: translateY(-2px); }
+
+    .s-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+
+    .s-card:hover::before { opacity: 1; }
+
+    .s-card.green::before { background: radial-gradient(circle at top left, rgba(0,230,118,.08), transparent 60%); }
+    .s-card.red::before   { background: radial-gradient(circle at top left, rgba(255,61,113,.08), transparent 60%); }
+    .s-card.cyan::before  { background: radial-gradient(circle at top left, rgba(0,212,255,.08), transparent 60%); }
+
+    .s-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      margin-bottom: 10px;
+    }
+
+    .s-value {
+      font-family: 'Space Mono', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -1px;
+    }
+
+    .s-value.green { color: var(--green); }
+    .s-value.red   { color: var(--red); }
+    .s-value.cyan  { color: var(--cyan); }
+    .s-value.white { color: var(--text); }
+
+    .s-sub {
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 4px;
+    }
+
+    /* ── Section headers ── */
+    .sec-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sec-title::before {
+      content: '';
+      width: 3px;
+      height: 18px;
+      background: linear-gradient(180deg, var(--cyan), var(--purple));
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    /* ── Per-symbol breakdown ── */
+    .sym-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .sym-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      transition: all .2s;
+    }
+
+    .sym-card:hover {
+      border-color: rgba(0,212,255,.3);
+      background: var(--bg2);
+    }
+
+    .sym-name {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .sym-net {
+      font-family: 'Space Mono', monospace;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .sym-meta {
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    .wr-bar {
+      height: 4px;
+      background: var(--bg3);
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+
+    .wr-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width .6s ease;
+    }
+
+    /* ── Chart-like P&L equity curve ── */
+    .equity-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 28px;
+    }
+
+    .equity-chart {
+      width: 100%;
+      height: 160px;
+    }
+
+    /* ── Trade Table ── */
+    .table-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .table-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-search {
+      padding: 8px 14px;
+      background: var(--bg3);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      width: 220px;
+      outline: none;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .table-search:focus { border-color: var(--cyan); }
+
+    .table-scroll {
+      overflow-x: auto;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: var(--bg3);
+      padding: 12px 14px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--text2);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background .15s;
+    }
+
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    tbody tr:last-child { border-bottom: none; }
+
+    tbody td {
+      padding: 11px 14px;
+      white-space: nowrap;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .3px;
+    }
+
+    .badge-buy  { background: rgba(0,230,118,.15); color: var(--green); }
+    .badge-sell { background: rgba(255,61,113,.15); color: var(--red); }
+
+    .mono { font-family: 'Space Mono', monospace; font-size: 12px; }
+
+    .pos { color: var(--green); font-weight: 600; }
+    .neg { color: var(--red);   font-weight: 600; }
+
+    .reason-cell {
+      max-width: 220px;
+      font-size: 11px;
+      color: var(--text2);
+      white-space: normal;
+      line-height: 1.4;
+    }
+
+    /* ── Export button ── */
+    .export-btn {
+      padding: 8px 18px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text2);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .export-btn:hover {
+      color: var(--green);
+      border-color: var(--green);
+      background: rgba(0,230,118,.05);
+    }
+
+    /* ── Loader ── */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(255,255,255,.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Period badge ── */
+    .period-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,212,255,.08);
+      border: 1px solid rgba(0,212,255,.2);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: var(--cyan);
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+  </style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-btn">← Dashboard</a>
+    <div class="topbar-title">📑 Trading Report</div>
+  </div>
+  <div class="topbar-right" id="clock">--:--:--</div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <label>Dari</label>
+    <input type="date" id="startDate" />
+    <label>Sampai</label>
+    <input type="date" id="endDate" />
+
+    <div class="shortcut-btns">
+      <button class="shortcut-btn" onclick="setRange(1)">1 Hari</button>
+      <button class="shortcut-btn" onclick="setRange(7)">7 Hari</button>
+      <button class="shortcut-btn active" onclick="setRange(30)">30 Hari</button>
+      <button class="shortcut-btn" onclick="setRange(90)">90 Hari</button>
+    </div>
+
+    <button class="generate-btn" id="genBtn" onclick="generateReport()">
+      <span id="genIcon">🔍</span>
+      <span id="genText">Generate</span>
+    </button>
+  </div>
+
+  <!-- Report Content -->
+  <div id="reportArea">
+    <div class="state-box">
+      <div class="icon">📊</div>
+      <p>Pilih rentang tanggal dan klik Generate untuk melihat laporan trading.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Clock ──────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('id-ID', { hour12: false });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Default dates ───────────────────────────────────────────────────────
+function fmt(d) { return d.toISOString().split('T')[0]; }
+
+function setRange(days) {
+  const end   = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - days + 1);
+  document.getElementById('startDate').value = fmt(start);
+  document.getElementById('endDate').value   = fmt(end);
+
+  document.querySelectorAll('.shortcut-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+setRange(30); // default
+
+// ── Helpers ────────────────────────────────────────────────────────────
+const usd = v => {
+  const n = parseFloat(v)||0;
+  return (n>=0?'+':'') + '$' + Math.abs(n).toFixed(2);
+};
+const usdAbs = v => '$' + (parseFloat(v)||0).toFixed(2);
+const pct = v => (parseFloat(v)||0).toFixed(1)+'%';
+
+function tradeReason(trade) {
+  const t   = trade.type;
+  const sym = trade.symbol || '';
+  const p   = trade.profit || 0;
+  const op  = trade.open_price  || 0;
+  const cp  = trade.close_price || 0;
+  const diff = cp - op;
+  const pips = sym.includes('JPY') ? diff*100 : diff*10000;
+
+  const signal = t === 'BUY'
+    ? '📈 Bullish — EMA cross up / RSI recovery'
+    : '📉 Bearish — EMA cross down / RSI pullback';
+
+  const result = p > 0
+    ? `✅ TP hit (+${Math.abs(pips).toFixed(1)} pips)`
+    : p < 0
+    ? `❌ SL hit (${pips.toFixed(1)} pips)`
+    : '➖ Breakeven';
+
+  return `${signal}<br><span style="color:var(--text3)">${result}</span>`;
+}
+
+function formatDur(s) {
+  if (!s) return '—';
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ── Equity curve SVG ───────────────────────────────────────────────────
+function drawEquityCurve(trades) {
+  if (!trades || trades.length === 0) return '';
+
+  let running = 0;
+  const points = [{x:0, y:0}];
+  trades.slice().reverse().forEach((t, i) => {
+    running += (t.net ?? (t.profit + (t.commission||0) + (t.swap||0)));
+    points.push({ x: i+1, y: running });
+  });
+
+  const W = 1200, H = 140, PAD = 20;
+  const ys = points.map(p=>p.y);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const rangeY = maxY - minY || 1;
+
+  const px = i => PAD + (i/(points.length-1||1)) * (W - PAD*2);
+  const py = y => H - PAD - ((y - minY)/rangeY) * (H - PAD*2);
+
+  const lineD = points.map((p,i) => `${i===0?'M':'L'}${px(i)},${py(p.y)}`).join(' ');
+  const areaD = lineD + ` L${px(points.length-1)},${py(minY)} L${px(0)},${py(minY)} Z`;
+
+  const finalVal = points[points.length-1].y;
+  const color    = finalVal >= 0 ? '#00e676' : '#ff3d71';
+  const gColor   = finalVal >= 0 ? 'rgba(0,230,118,.15)' : 'rgba(255,61,113,.15)';
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" class="equity-chart" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="eg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity=".3"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaD}" fill="url(#eg)" />
+      <path d="${lineD}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="${PAD}" y1="${py(0)}" x2="${W-PAD}" y2="${py(0)}" stroke="rgba(255,255,255,.1)" stroke-dasharray="4,4"/>
+    </svg>`;
+}
+
+// ── Generate Report ────────────────────────────────────────────────────
+async function generateReport() {
+  const start = document.getElementById('startDate').value;
+  const end   = document.getElementById('endDate').value;
+
+  if (!start || !end) {
+    alert('Pilih tanggal mulai dan akhir');
+    return;
+  }
+
+  const btn  = document.getElementById('genBtn');
+  const icon = document.getElementById('genIcon');
+  const txt  = document.getElementById('genText');
+
+  btn.disabled = true;
+  icon.innerHTML = '<div class="spinner"></div>';
+  txt.textContent = 'Loading...';
+
+  document.getElementById('reportArea').innerHTML =
+    '<div class="state-box"><div class="spinner" style="margin:0 auto 16px"></div><p>Mengambil data...</p></div>';
+
+  try {
+    const res  = await fetch(`/api/report?start_date=${start}&end_date=${end}`);
+    const data = await res.json();
+
+    if (!data.success) throw new Error(data.error || 'Server error');
+
+    renderReport(data, start, end);
+  } catch(err) {
+    document.getElementById('reportArea').innerHTML =
+      `<div class="state-box">
+        <div class="icon">⚠️</div>
+        <p style="color:var(--red)">${err.message}</p>
+        <p style="margin-top:8px;font-size:12px">Pastikan bot berjalan dan MT5 terhubung</p>
+       </div>`;
+  } finally {
+    btn.disabled = false;
+    icon.textContent = '🔍';
+    txt.textContent  = 'Generate';
+  }
+}
+
+// ── Render Report ──────────────────────────────────────────────────────
+function renderReport(data, start, end) {
+  const s  = data.summary;
+  const trades = data.trades || [];
+  window._allTrades = trades;
+
+  const totalDays = Math.round((new Date(end)-new Date(start))/86400000)+1;
+  const perDay    = trades.length > 0 ? (s.net_profit/totalDays).toFixed(2) : 0;
+
+  // ── Period badge ──
+  let html = `
+    <div class="period-badge">
+      📅 ${start} — ${end} &nbsp;·&nbsp; ${totalDays} hari &nbsp;·&nbsp; ${trades.length} trade
+    </div>`;
+
+  // ── Summary grid ──
+  html += `<div class="summary-grid">`;
+
+  const cards = [
+    { label:'Net Profit',    val: usd(s.net_profit),                cls: s.net_profit>=0?'green':'red',   sub: `${perDay>0?'+':''}$${Math.abs(perDay)}/hari` },
+    { label:'Win Rate',      val: pct(s.win_rate),                  cls: s.win_rate>=50?'green':'red',     sub: `${s.winning}W / ${s.losing}L` },
+    { label:'Profit Factor', val: (s.profit_factor||0).toFixed(2)+'x', cls:'cyan',                        sub: s.profit_factor>=1.5?'Bagus':'Perlu improvement' },
+    { label:'Total Trades',  val: s.total_trades,                   cls:'white',                           sub: `${totalDays} hari aktif` },
+    { label:'Total Profit',  val: usdAbs(s.total_profit),           cls:'green',                           sub: `Avg win ${usdAbs(s.avg_win)}` },
+    { label:'Total Loss',    val: usdAbs(s.total_loss),             cls:'red',                             sub: `Avg loss ${usdAbs(s.avg_loss)}` },
+    { label:'Avg Win',       val: usdAbs(s.avg_win),               cls:'green',                            sub: 'per trade profit' },
+    { label:'Avg Loss',      val: usdAbs(s.avg_loss),              cls:'red',                              sub: 'per trade loss' },
+  ];
+
+  cards.forEach(c => {
+    html += `
+      <div class="s-card ${c.cls}">
+        <div class="s-label">${c.label}</div>
+        <div class="s-value ${c.cls}">${c.val}</div>
+        <div class="s-sub">${c.sub}</div>
+      </div>`;
+  });
+  html += '</div>';
+
+  // ── Equity curve ──
+  html += `
+    <div class="equity-section">
+      <div class="sec-title">Equity Curve</div>
+      ${drawEquityCurve(trades)}
+    </div>`;
+
+  // ── Per symbol ──
+  const bySymbol = data.by_symbol || {};
+  if (Object.keys(bySymbol).length > 0) {
+    html += `<div class="sec-title">Per Pair</div><div class="sym-grid">`;
+    Object.entries(bySymbol)
+      .sort((a,b) => b[1].net - a[1].net)
+      .forEach(([sym, info]) => {
+        const nc = info.net >= 0 ? 'pos' : 'neg';
+        const wrColor = info.win_rate >= 50 ? '#00e676' : '#ff3d71';
+        html += `
+          <div class="sym-card">
+            <div class="sym-name">${sym}</div>
+            <div class="sym-net ${nc}">${usd(info.net)}</div>
+            <div class="sym-meta">${info.trades} trade &nbsp;·&nbsp; WR ${info.win_rate}%</div>
+            <div class="wr-bar">
+              <div class="wr-fill" style="width:${info.win_rate}%;background:${wrColor}"></div>
+            </div>
+          </div>`;
+      });
+    html += '</div>';
+  }
+
+  // ── Trade table ──
+  html += `
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="sec-title" style="margin-bottom:0">Daftar Trade</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input type="text" class="table-search" id="tradeSearch"
+            placeholder="🔍 Cari symbol..." oninput="filterTable()" />
+          <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tutup</th>
+              <th>Symbol</th>
+              <th>Type</th>
+              <th>Vol</th>
+              <th>Open</th>
+              <th>Close</th>
+              <th>Durasi</th>
+              <th>Profit</th>
+              <th>Komisi</th>
+              <th>Swap</th>
+              <th>Net P/L</th>
+              <th>Sinyal / Alasan</th>
+            </tr>
+          </thead>
+          <tbody id="tradeBody">
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById('reportArea').innerHTML = html;
+  renderTable(trades);
+}
+
+// ── Table render & filter ──────────────────────────────────────────────
+function renderTable(trades) {
+  const tbody = document.getElementById('tradeBody');
+  if (!trades || trades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text3)">Tidak ada trade</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = trades.map((t, i) => {
+    const net    = t.net ?? (t.profit + (t.commission||0) + (t.swap||0));
+    const netCls = net  >= 0 ? 'pos' : 'neg';
+    const pCls   = (t.profit||0) >= 0 ? 'pos' : 'neg';
+    const closeT = t.close_time ? new Date(t.close_time).toLocaleString('id-ID') : '—';
+
+    return `
+      <tr class="trade-row" data-symbol="${(t.symbol||'').toUpperCase()}">
+        <td class="mono" style="color:var(--text3)">${i+1}</td>
+        <td class="mono" style="font-size:11px">${closeT}</td>
+        <td style="font-weight:700">${t.symbol}</td>
+        <td><span class="badge badge-${(t.type||'').toLowerCase()}">${t.type}</span></td>
+        <td class="mono">${(t.volume||0).toFixed(2)}</td>
+        <td class="mono">${(t.open_price||0).toFixed(5)}</td>
+        <td class="mono">${(t.close_price||0).toFixed(5)}</td>
+        <td style="color:var(--text2)">${formatDur(t.duration_seconds)}</td>
+        <td class="${pCls} mono">${usd(t.profit)}</td>
+        <td class="mono" style="color:var(--text3)">${usd(t.commission)}</td>
+        <td class="mono" style="color:var(--text3)">${usd(t.swap)}</td>
+        <td class="${netCls} mono"><strong>${usd(net)}</strong></td>
+        <td class="reason-cell">${tradeReason(t)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('tradeSearch').value.toUpperCase();
+  const all = window._allTrades || [];
+  const filtered = q ? all.filter(t => (t.symbol||'').toUpperCase().includes(q)) : all;
+  renderTable(filtered);
+}
+
+// ── CSV Export ─────────────────────────────────────────────────────────
+function exportCSV() {
+  const trades = window._allTrades || [];
+  if (!trades.length) return;
+
+  const header = ['Ticket','Symbol','Type','Volume','Open','Close','Open Time','Close Time','Duration(s)','Profit','Commission','Swap','Net'];
+  const rows   = trades.map(t => [
+    t.ticket, t.symbol, t.type, t.volume,
+    t.open_price, t.close_price,
+    t.open_time, t.close_time, t.duration_seconds,
+    t.profit, t.commission, t.swap,
+    (t.net ?? (t.profit+(t.commission||0)+(t.swap||0))).toFixed(2)
+  ]);
+
+  const csv  = [header, ...rows].map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `report_${document.getElementById('startDate').value}_${document.getElementById('endDate').value}.csv`;
+  a.click();
+}
+</script>
+</body>
+</html>
