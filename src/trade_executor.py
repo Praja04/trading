@@ -54,21 +54,19 @@ class TradeExecutor:
     def _refresh_risk_params(self):
         if self.strategy_manager:
             rp = self.strategy_manager.get_risk_parameters()
-            self.risk_per_trade_min       = rp['risk_per_trade_min']
-            self.risk_per_trade_max       = rp['risk_per_trade_max']
-            self.max_leverage             = rp['max_leverage']
-            self.max_drawdown_limit       = rp['max_drawdown_limit']
-            self.max_positions            = rp.get('max_positions', 6)
-            self.compounding              = rp.get('compounding', False)
-            self.max_single_position_loss = rp.get('max_single_position_loss', -5.0)
+            self.risk_per_trade_min = rp['risk_per_trade_min']
+            self.risk_per_trade_max = rp['risk_per_trade_max']
+            self.max_leverage       = rp['max_leverage']
+            self.max_drawdown_limit = rp['max_drawdown_limit']
+            self.max_positions      = rp.get('max_positions', 6)
+            self.compounding        = rp.get('compounding', False)
         else:
-            self.risk_per_trade_min       = 0.003
-            self.risk_per_trade_max       = 0.010
-            self.max_leverage             = 100
-            self.max_drawdown_limit       = 0.04
-            self.max_positions            = 6
-            self.compounding              = False
-            self.max_single_position_loss = -5.0
+            self.risk_per_trade_min = 0.003
+            self.risk_per_trade_max = 0.010
+            self.max_leverage       = 100
+            self.max_drawdown_limit = 0.04
+            self.max_positions      = 6
+            self.compounding        = False
 
     # ------------------------------------------------------------------
     # EXECUTE SIGNAL
@@ -82,6 +80,18 @@ class TradeExecutor:
             if total_count >= self.max_positions:
                 logging.warning(f"Max positions reached ({total_count}/{self.max_positions}), skipping {symbol}")
                 return False
+
+            # Gate 1b: Max 1 posisi per pair per arah (BUY/SELL)
+            existing = mt5.positions_get(symbol=symbol)
+            if existing:
+                for pos in existing:
+                    existing_type = 'BUY' if pos.type == 0 else 'SELL'
+                    if existing_type == signal['action']:
+                        logging.info(
+                            f"[PairGate] {symbol} sudah ada posisi {existing_type} "
+                            f"(ticket={pos.ticket}), skip arah yang sama"
+                        )
+                        return False
 
             # Gate 2: daily loss limit
             if self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss:
@@ -349,15 +359,6 @@ class TradeExecutor:
             for pos in positions:
                 profit = pos.profit
                 total_profit += profit
-
-                # Force close posisi yang bleeding terlalu dalam
-                if profit <= self.max_single_position_loss:
-                    logging.warning(
-                        f"[MaxLoss] {pos.symbol} ticket={pos.ticket} "
-                        f"profit=${profit:.2f} <= limit=${self.max_single_position_loss:.2f} — FORCE CLOSE"
-                    )
-                    self.close_position(pos)
-                    continue
                 if 'JPY' in pos.symbol:
                     pips = (pos.price_current - pos.price_open) * 100 if pos.type == 0 \
                            else (pos.price_open - pos.price_current) * 100
