@@ -380,44 +380,129 @@ def get_tick_history_from_db(symbol, minutes=60):
 # ======================================================================
 
 def extract_strategy_info(strategy_data):
-    """Extract key information from strategy JSON"""
+    """Extract key information from strategy JSON.
+    Supports three formats:
+      - LME   : { "engine_core": {...}, "symbol_detection": {...}, ... }
+      - Advanced: { "risk_management": {...}, "symbol_management": {...}, ... }
+      - Legacy: { "parameters": {...}, "entry_conditions": {...}, ... }
+    """
     try:
-        strategy = None
-        
-        if isinstance(strategy_data, dict):
-            if len(strategy_data) == 1:
-                strategy_key = list(strategy_data.keys())[0]
-                strategy = strategy_data[strategy_key]
-            else:
-                strategy = strategy_data
-        else:
+        if not isinstance(strategy_data, dict):
             raise ValueError("Strategy data must be a dictionary")
-        
-        # Extract symbols/pairs from multiple possible locations
+
+        # Unwrap single-key wrapper e.g. { "quant_xxx": { ... } }
+        if len(strategy_data) == 1:
+            strategy = list(strategy_data.values())[0]
+        else:
+            strategy = strategy_data
+
+        # ── Detect format ──────────────────────────────────────────
+        is_lme      = 'engine_core' in strategy
+        is_advanced = not is_lme and (
+            'risk_management' in strategy or 'symbol_management' in strategy
+        )
+
+        # ── Name ──────────────────────────────────────────────────
+        if is_lme:
+            name = strategy.get('engine_core', {}).get('name', 'Liquidity_Matrix_Engine')
+        else:
+            name = strategy.get('strategy_name', strategy.get('name', 'Unknown Strategy'))
+
+        # ── Philosophy / mode ─────────────────────────────────────
+        if is_lme:
+            philosophy = strategy.get('engine_core', {}).get('mode', 'live_trading')
+        else:
+            philosophy = strategy.get('core_philosophy', strategy.get('philosophy', 'N/A'))
+
+        # ── Pairs ─────────────────────────────────────────────────
         pairs = []
-        
-        if 'pairs' in strategy:
-            pairs = strategy['pairs']
-        elif 'trading_pairs' in strategy:
-            pairs = strategy['trading_pairs']
-        elif 'symbols' in strategy:
-            pairs = strategy['symbols']
-        elif 'parameters' in strategy and 'trading_pairs' in strategy['parameters']:
-            pairs = strategy['parameters']['trading_pairs']
-        elif 'parameters' in strategy and 'symbols' in strategy['parameters']:
-            pairs = strategy['parameters']['symbols']
-        
+
+        if is_lme:
+            base = strategy.get('symbol_detection', {}).get('base_symbol')
+            if base:
+                pairs = [base]
+
+        elif is_advanced:
+            sym_mgmt = strategy.get('symbol_management', {})
+            base_syms = sym_mgmt.get('base_symbols', {})
+            primary   = base_syms.get('primary')
+            secondary = base_syms.get('secondary', [])
+            if primary:
+                pairs = [primary] + (secondary if isinstance(secondary, list) else [])
+
+        else:
+            # Legacy: check multiple locations
+            for path in [
+                lambda s: s.get('pairs'),
+                lambda s: s.get('trading_pairs'),
+                lambda s: s.get('symbols'),
+                lambda s: s.get('parameters', {}).get('trading_pairs'),
+                lambda s: s.get('parameters', {}).get('symbols'),
+            ]:
+                result = path(strategy)
+                if result and isinstance(result, list):
+                    pairs = result
+                    break
+
         if not isinstance(pairs, list):
             pairs = []
-        
+
+        # ── Timeframes ────────────────────────────────────────────
+        if is_lme:
+            timeframes = ['M1', 'M5', 'M15']
+        elif is_advanced:
+            gp = strategy.get('general_parameters', {})
+            timeframes = [
+                gp.get('micro_timeframe',     'M1'),
+                gp.get('execution_timeframe', 'M5'),
+                gp.get('trend_timeframe',     'M15'),
+            ]
+        else:
+            timeframes = strategy.get('parameters', {}).get(
+                'timeframes', strategy.get('timeframes', [])
+            )
+
+        # ── Risk ─────────────────────────────────────────────────
+        if is_lme:
+            lot_mode  = strategy.get('lot_management', {}).get('mode', 'fixed')
+            fixed_lot = strategy.get('lot_management', {}).get('fixed_lot', 0.01)
+            risk_per_trade = [fixed_lot, fixed_lot]   # display as fixed lot
+        elif is_advanced:
+            rm = strategy.get('risk_management', {})
+            risk_per_trade = [
+                rm.get('risk_per_trade_min', 0.003),
+                rm.get('risk_per_trade_max', 0.010),
+            ]
+        else:
+            risk_per_trade = strategy.get('parameters', {}).get('risk_per_trade_range', [])
+
+        # ── Extra LME fields for dashboard display ────────────────
+        extra = {}
+        if is_lme:
+            extra = {
+                'lot_mode':         strategy.get('lot_management', {}).get('mode', 'fixed'),
+                'fixed_lot':        strategy.get('lot_management', {}).get('fixed_lot', 0.01),
+                'max_trades_day':   strategy.get('execution_control', {}).get('max_trades_per_day', 6),
+                'max_orders_total': strategy.get('safety_limits', {}).get('max_orders_total', 12),
+                'spread_filter':    strategy.get('spread_filter', {}).get('max_spread_points', 50),
+                'news_filter':      strategy.get('news_filter', {}).get('enabled', True),
+                'session_mode':     strategy.get('trading_session', {}).get('session_mode', 'dual_session'),
+                'buy_magic':        strategy.get('magic_numbers', {}).get('buy_magic', 88001),
+                'sell_magic':       strategy.get('magic_numbers', {}).get('sell_magic', 88002),
+            }
+
         return {
-            'name': strategy.get('strategy_name', strategy.get('name', 'Unknown Strategy')),
-            'philosophy': strategy.get('core_philosophy', strategy.get('philosophy', 'N/A')),
-            'timeframes': strategy.get('parameters', {}).get('timeframes', strategy.get('timeframes', [])),
-            'pairs': pairs,
-            'risk_per_trade': strategy.get('parameters', {}).get('risk_per_trade_range', []),
-            'performance_targets': strategy.get('performance_targets', {})
+            'name':               name,
+            'philosophy':         philosophy,
+            'timeframes':         timeframes,
+            'pairs':              pairs,
+            'risk_per_trade':     risk_per_trade,
+            'performance_targets': strategy.get('performance_targets',
+                                   strategy.get('performance_targets_reference', {})),
+            'format':             'lme' if is_lme else ('advanced' if is_advanced else 'legacy'),
+            **extra
         }
+
     except Exception as e:
         print(f"Error extracting strategy info: {e}")
         import traceback
@@ -428,7 +513,8 @@ def extract_strategy_info(strategy_data):
             'timeframes': [],
             'pairs': [],
             'risk_per_trade': [],
-            'performance_targets': {}
+            'performance_targets': {},
+            'format': 'unknown'
         }
 
 # ======================================================================
@@ -1445,4 +1531,3 @@ def _generate_trade_reason(symbol, trade_type, open_price, close_price, profit):
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-
