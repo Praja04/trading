@@ -683,8 +683,14 @@ class StrategyManager:
     # ══════════════════════════════════════════════════════════════════
 
     def _is_dst(self) -> bool:
-        """Simple DST check: Northern Hemisphere — DST active March–October."""
-        now = datetime.now()
+        """
+        DST check based on UTC month, controlled by auto_dst_adjustment from JSON.
+        If broker_time_engine.auto_dst_adjustment=false → always use winter schedule.
+        Northern Hemisphere: DST active March–October.
+        """
+        if not self._norm.get("auto_dst", True):
+            return False
+        now = datetime.now(timezone.utc)
         return 3 <= now.month <= 10
 
     def check_session_filter(self) -> bool:
@@ -714,8 +720,9 @@ class StrategyManager:
 
     def _check_lme_session(self) -> bool:
         """
-        LME dual-session check. Returns True only if current time
+        LME dual-session check. Returns True only if current GMT/UTC time
         falls within one of the two configured trading windows.
+        Strategy JSON sessions are defined in GMT (reference_timezone: GMT).
         """
         n   = self._norm
         dst = self._is_dst() if n.get('auto_dst', True) else False
@@ -724,7 +731,8 @@ class StrategyManager:
         if not sessions_cfg:
             return True  # no config = allow all
 
-        now = datetime.now()
+        # Always compare in UTC/GMT — strategy sessions are defined in GMT
+        now = datetime.now(timezone.utc)
         now_str = now.strftime('%H:%M')
 
         for key in ['session_1', 'session_2']:
