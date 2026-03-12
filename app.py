@@ -14,14 +14,16 @@ sys.path.append('.')
 sys.path.append('src')
 from news_collector import NewsCollector, start_news_updater
 from trade_history import TradeHistoryManager
-
+import time as _time 
+import subprocess
 app = Flask(__name__)
 
 # Configuration
 UPLOAD_FOLDER = 'config/strategies'
 ALLOWED_EXTENSIONS = {'json'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
-
+STOP_SIGNAL_FILE = "config/.stop_rule_engine"
+BOT_STATE_FILE   = "config/.rule_engine_state.json"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
@@ -1405,7 +1407,77 @@ print("="*80)
 # ======================================================================
 # TRADING REPORT API — date range summary
 # ======================================================================
+# ── Route halaman dashboard rule engine ──────────────────────
+@app.route('/bot')
+def bot_dashboard():
+    """Halaman dashboard khusus Rule Engine"""
+    return render_template('rule_engine_dashboard.html')
+ 
+# ── API: baca status bot dari file JSON ──────────────────────
+@app.route('/api/bot/status')
+def api_bot_status():
+    """Baca status rule_engine.py dari shared state file"""
+    try:
+        if not os.path.exists(BOT_STATE_FILE):
+            return jsonify({
+                "running": False,
+                "reason":  "Bot tidak berjalan",
+                "open_orders": 0,
+                "max_levels": 8
+            })
+ 
+        # Cek umur file — kalau > 15 detik, anggap bot mati
+        age = _time.time() - os.path.getmtime(BOT_STATE_FILE)
+ 
+        with open(BOT_STATE_FILE, 'r') as f:
+            state = json.load(f)
+ 
+        state["running"] = age < 15
+        state["last_update_seconds_ago"] = round(age, 1)
+ 
+        return jsonify(state)
+ 
+    except Exception as e:
+        return jsonify({"running": False, "error": str(e), "open_orders": 0})
+ 
+# ── API: kirim stop signal ke bot ────────────────────────────
+@app.route('/api/bot/stop', methods=['POST'])
+def api_bot_stop():
+    """Kirim signal stop ke rule_engine.py"""
+    try:
+        os.makedirs("config", exist_ok=True)
+        with open(STOP_SIGNAL_FILE, 'w') as f:
+            f.write(datetime.now().isoformat())
+        return jsonify({
+            "success": True,
+            "message": "Stop signal dikirim. Bot akan berhenti di cycle berikutnya."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
+
+bot_process = None  # simpan proses
+
+@app.route('/api/bot/start', methods=['POST'])
+def api_bot_start():
+    global bot_process
+    try:
+        # Cek kalau bot sudah jalan
+        if bot_process and bot_process.poll() is None:
+            return jsonify({"success": False, "message": "Bot sudah berjalan"})
+        
+        # Jalankan rule_engine.py sebagai proses background
+        bot_process = subprocess.Popen(
+            ["python", "rule_engine.py"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return jsonify({"success": True, "message": "Bot dimulai", "pid": bot_process.pid})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+        
 @app.route('/api/report')
 def api_report():
     """Get trading report for a custom date range"""

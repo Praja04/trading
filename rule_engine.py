@@ -7,7 +7,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.live import Live
 from rich.panel import Panel
-
+STOP_SIGNAL_FILE = "config/.stop_rule_engine"
+BOT_STATE_FILE   = "config/.rule_engine_state.json"
 # ══════════════════════════════════════════════════════════════
 # LOAD CONFIG
 # ══════════════════════════════════════════════════════════════
@@ -198,6 +199,30 @@ def liquidity(df):
         return "BUY", f"Liquidity Sweep Low ({l:.2f})"
     return None, None
 
+# Tambahkan fungsi ini
+def save_bot_status():
+    try:
+        bot_state = {
+            "running": True,
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "symbol": symbol,
+            "session_active": status["sesi"],
+            "spread": status["spread_val"],
+            "volatility": status["vol"],
+            "atr": status["atr"],
+            "signal": status["signal"],
+            "reason": status["reason"],
+            "last_order": status["order"],
+            "profit_locked": status["profit_locked"],
+            "dd_aman": status["dd_aman"],
+            "open_orders": jumlah_order_terbuka(),
+            "max_levels": max_levels,
+            "logs": status["logs"][-10:]
+        }
+        with open("config/.rule_engine_state.json", "w") as f:
+            json.dump(bot_state, f, indent=2)
+    except:
+        pass
 # ══════════════════════════════════════════════════════════════
 # SEND ORDER  (dengan SL/TP otomatis)
 # ══════════════════════════════════════════════════════════════
