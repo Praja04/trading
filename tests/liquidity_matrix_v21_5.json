@@ -1,0 +1,56 @@
+{
+ "engine":{
+  "name":"Liquidity Matrix Engine",
+  "version":"21.5 HEDGE FUND",
+  "symbol":"XAUUSD"
+ },
+
+ "broker":{
+  "auto_symbol":true,
+  "auto_suffix":true,
+  "auto_gmt":true
+ },
+
+ "session":{
+  "windows":[
+   ["07:00","11:30"],
+   ["13:00","19:00"]
+  ]
+ },
+
+ "filters":{
+  "spread_limit":40,
+  "volatility_min": 0.5,
+  "volatility_limit": 8.0
+ },
+
+ "volatility":{
+  "atr_period":14
+ },
+
+ "liquidity":{
+  "lookback":150
+ },
+
+ "grid":{
+  "enabled":true,
+  "max_levels":8,
+  "compression":true,
+  "atr_multiplier":1.1
+ },
+
+ "lot":{
+  "mode":"fixed",
+  "size":0.01
+ },
+
+ "dynamic_target":{
+  "min":200,
+  "max":1000
+ },
+
+ "risk":{
+  "max_dd":0.018,
+  "profit_lock":600
+ }
+}
