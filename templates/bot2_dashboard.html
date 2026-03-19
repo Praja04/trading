@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V104 AI Bot — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#070c14; --bg2:#0c1421; --bg3:#101c2e; --border:#1a2d48;
+    --accent:#00d4ff; --accent2:#00ff88; --danger:#ff4757;
+    --warn:#ffa502; --purple:#7b2ff7; --gold:#ffd700;
+    --text:#c8d8e8; --text2:#6a8aaa;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;font-size:14px;min-height:100vh;overflow-x:hidden;}
+
+  /* TOPBAR */
+  .topbar{background:linear-gradient(90deg,#050a10,#0a1628,#050a10);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:16px;font-family:'Share Tech Mono',monospace;font-size:12px;flex-wrap:wrap;}
+  .logo{font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--purple);letter-spacing:1px;}
+  .tbi{color:var(--text2);}
+  .tbi span{margin-left:3px;}
+  .green{color:var(--accent2)!important;} .red{color:var(--danger)!important;}
+  .gold{color:var(--gold)!important;}     .cyan{color:var(--accent)!important;}
+  .purple{color:var(--purple)!important;} .warn{color:var(--warn)!important;}
+  .tnav{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .nl{padding:4px 12px;border-radius:3px;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;text-decoration:none;border:1px solid var(--border);color:var(--text2);transition:all .2s;}
+  .nl:hover{border-color:var(--accent);color:var(--accent);}
+  .nl.on{background:rgba(123,47,247,.2);border-color:var(--purple);color:var(--purple);}
+  .sbadge{padding:4px 12px;border-radius:3px;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;}
+  .br{background:rgba(0,255,136,.15);color:var(--accent2);border:1px solid var(--accent2);animation:pulse 2s infinite;}
+  .bs{background:rgba(255,71,87,.15);color:var(--danger);border:1px solid var(--danger);}
+  .bo{background:rgba(106,138,170,.1);color:var(--text2);border:1px solid var(--border);}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+  /* GRID */
+  .main{padding:12px;display:grid;grid-template-columns:260px 1fr 260px;gap:10px;}
+  .col{display:flex;flex-direction:column;gap:10px;}
+  .full{grid-column:1/-1;}
+  @media(max-width:1200px){.main{grid-template-columns:1fr 1fr;}}
+  @media(max-width:700px){.main{grid-template-columns:1fr;}}
+
+  /* PANEL */
+  .panel{background:var(--bg2);border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+  .ph{padding:8px 14px;background:linear-gradient(90deg,rgba(123,47,247,.1),transparent);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--purple);text-transform:uppercase;}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--purple);box-shadow:0 0 6px var(--purple);flex-shrink:0;}
+  .pb{padding:12px 14px;}
+
+  /* DATA ROWS */
+  .dr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(26,45,72,.5);gap:8px;}
+  .dr:last-child{border-bottom:none;}
+  .dl{color:var(--text2);font-size:13px;white-space:nowrap;}
+  .dv{font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--text);text-align:right;}
+  .dv.big{font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:var(--gold);}
+
+  /* BUTTONS */
+  .brow{display:flex;gap:10px;margin-bottom:14px;}
+  .btn{flex:1;padding:13px;border:none;border-radius:4px;font-family:'Orbitron',sans-serif;font-size:13px;font-weight:900;letter-spacing:2px;cursor:pointer;transition:all .2s;}
+  .btn:hover{transform:translateY(-2px);}
+  .btn:active{transform:translateY(0);}
+  .bst{background:linear-gradient(135deg,#00a854,#00cc6a);color:#fff;box-shadow:0 4px 20px rgba(0,200,100,.35);}
+  .bsp{background:linear-gradient(135deg,#c0392b,#e74c3c);color:#fff;box-shadow:0 4px 20px rgba(231,76,60,.35);}
+
+  /* STATUS GRID */
+  .sg{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .si{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;}
+  .sl{color:var(--text2);font-size:12px;}
+  .sv{font-family:'Share Tech Mono',monospace;font-size:13px;font-weight:700;color:var(--accent2);}
+  .sv.red{color:var(--danger);} .sv.gold{color:var(--gold);} .sv.purple{color:var(--purple);}
+
+  /* PAIR BADGES */
+  .pb2{display:inline-block;padding:3px 9px;border-radius:3px;font-size:11px;font-weight:700;margin:2px;font-family:'Share Tech Mono',monospace;border:1px solid;}
+  .pc{background:rgba(255,215,0,.12);color:var(--gold);border-color:var(--gold);}
+  .ph2{background:rgba(0,212,255,.12);color:var(--accent);border-color:var(--accent);}
+  .ps{background:rgba(0,255,136,.12);color:var(--accent2);border-color:var(--accent2);}
+  .pbo{background:rgba(123,47,247,.15);color:var(--purple);border-color:var(--purple);}
+
+  /* BAR */
+  .bw{background:var(--bg3);height:5px;border-radius:3px;overflow:hidden;margin-top:6px;}
+  .bf{height:100%;border-radius:3px;transition:width .5s;}
+  .bg{background:linear-gradient(90deg,#00ff88,#00cc66);}
+  .brr{background:linear-gradient(90deg,#ff4757,#cc0000);}
+  .bwa{background:linear-gradient(90deg,#ffa502,#cc8800);}
+
+  /* CHART */
+  .cw{position:relative;height:170px;}
+  canvas{width:100%!important;}
+
+  /* AI TABLE */
+  .ait{width:100%;border-collapse:collapse;font-size:12px;}
+  .ait th{background:var(--bg3);color:var(--text2);font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;padding:7px 10px;text-align:left;font-family:'Share Tech Mono',monospace;border-bottom:1px solid var(--border);}
+  .ait td{padding:7px 10px;font-family:'Share Tech Mono',monospace;color:var(--text);border-bottom:1px solid rgba(26,45,72,.4);}
+  .ait tr:hover td{background:rgba(123,47,247,.04);}
+  .wrw{background:var(--bg3);height:4px;border-radius:2px;overflow:hidden;width:50px;display:inline-block;vertical-align:middle;margin-left:5px;}
+  .wrf{height:100%;border-radius:2px;transition:width .5s;}
+
+  /* POSITIONS */
+  .post{width:100%;border-collapse:collapse;font-size:12px;}
+  .post th{background:var(--bg3);color:var(--text2);font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:7px 10px;text-align:left;font-family:'Share Tech Mono',monospace;border-bottom:1px solid var(--border);white-space:nowrap;}
+  .post td{padding:6px 10px;font-family:'Share Tech Mono',monospace;color:var(--text);border-bottom:1px solid rgba(26,45,72,.4);}
+  .post tr:hover td{background:rgba(0,212,255,.02);}
+  .tb{background:rgba(0,212,255,.15);color:var(--accent);padding:2px 7px;border-radius:2px;font-weight:700;}
+  .ts2{background:rgba(255,71,87,.15);color:var(--danger);padding:2px 7px;border-radius:2px;font-weight:700;}
+  .pp{color:var(--accent2);font-weight:700;}
+  .pn{color:var(--danger);font-weight:700;}
+
+  /* LOG */
+  .lb{background:#040810;padding:10px 14px;max-height:220px;overflow-y:auto;font-family:'Share Tech Mono',monospace;font-size:11px;line-height:1.6;}
+  .lb::-webkit-scrollbar{width:4px;}
+  .lb::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+  .ll{color:var(--text2);}
+  .ll.ok{color:var(--accent2);} .ll.info{color:var(--accent);}
+  .ll.warn{color:var(--warn);}  .ll.err{color:var(--danger);}
+
+  /* SIGNAL BANNER */
+  .sigb{display:none;background:linear-gradient(90deg,rgba(123,47,247,.15),rgba(0,212,255,.08));border:1px solid var(--purple);border-radius:3px;padding:8px 14px;margin-bottom:12px;font-family:'Orbitron',sans-serif;font-size:11px;color:var(--purple);letter-spacing:1px;animation:fl .4s ease;}
+  @keyframes fl{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+  /* RST BTN */
+  .rst{font-size:10px;padding:2px 7px;border-radius:2px;background:rgba(255,71,87,.12);color:var(--danger);border:1px solid var(--danger);cursor:pointer;font-family:'Share Tech Mono',monospace;transition:all .2s;}
+  .rst:hover{background:rgba(255,71,87,.25);}
+
+  .empty{text-align:center;color:var(--text2);padding:18px;font-size:13px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">⬡ V104</span>
+  <span class="tbi">Balance: <span id="tb-bal" class="gold">—</span></span>
+  <span class="tbi">Equity: <span id="tb-eq">—</span></span>
+  <span class="tbi">Float: <span id="tb-fl">—</span></span>
+  <span class="tbi">DD: <span id="tb-dd" class="red">—</span></span>
+  <span class="tbi">Orders: <span id="tb-ord" class="purple">—</span></span>
+  <span class="tbi">Signal: <span id="tb-sig" class="cyan">—</span></span>
+  <span class="tbi">Time: <span id="tb-time" class="cyan">—</span></span>
+  <div class="tnav">
+    <a href="/"    class="nl">Dashboard</a>
+    <a href="/bot" class="nl">Rule Engine</a>
+    <a href="/bot2" class="nl on">V104</a>
+    <span class="sbadge bo" id="badge">OFFLINE</span>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- COL 1 -->
+  <div class="col">
+
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Account</div>
+      <div class="pb">
+        <div class="dr"><span class="dl">Balance</span>    <span class="dv big"  id="a-bal">—</span></div>
+        <div class="dr"><span class="dl">Equity</span>     <span class="dv gold" id="a-eq">—</span></div>
+        <div class="dr"><span class="dl">Float P&L</span>  <span class="dv"      id="a-fl">—</span></div>
+        <div class="dr"><span class="dl">Free Margin</span><span class="dv cyan" id="a-mg">—</span></div>
+        <div class="dr"><span class="dl">Leverage</span>   <span class="dv"      id="a-lv">—</span></div>
+        <div class="dr"><span class="dl">Drawdown</span>   <span class="dv"      id="a-dd">—</span></div>
+        <div class="bw"><div class="bf bg" id="dd-bar" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Pair hierarchy dibaca dari V104_AI_CONFIG.json -->
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Pair Hierarchy</div>
+      <div class="pb" id="pair-hier"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Risk config dari V104_AI_CONFIG.json -->
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Risk Config</div>
+      <div class="pb">
+        <div class="dr"><span class="dl">Base Lot</span>   <span class="dv cyan" id="c-bl">—</span></div>
+        <div class="dr"><span class="dl">Min/Max Lot</span><span class="dv"      id="c-mm">—</span></div>
+        <div class="dr"><span class="dl">Target DD</span>  <span class="dv warn" id="c-dd">—</span></div>
+        <div class="dr"><span class="dl">SL × ATR</span>   <span class="dv"      id="c-sl">—</span></div>
+        <div class="dr"><span class="dl">TP × ATR</span>   <span class="dv"      id="c-tp">—</span></div>
+        <div class="dr"><span class="dl">Cooldown</span>   <span class="dv"      id="c-cd">—</span></div>
+        <div class="dr"><span class="dl">Max Spread</span> <span class="dv"      id="c-sp">—</span></div>
+        <div class="dr"><span class="dl">ATR Range</span>  <span class="dv"      id="c-at">—</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- COL 2 -->
+  <div class="col">
+
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Controls</div>
+      <div class="pb">
+        <div class="sigb" id="sigb">—</div>
+        <div class="brow">
+          <button class="btn bst" onclick="startBot()">▶ START</button>
+          <button class="btn bsp" onclick="stopBot()">■ STOP</button>
+        </div>
+        <div class="sg">
+          <div class="si"><span class="sl">Status</span>      <span class="sv" id="s-st">—</span></div>
+          <div class="si"><span class="sl">Signal</span>      <span class="sv purple" id="s-sg">—</span></div>
+          <div class="si"><span class="sl">Open Orders</span><span class="sv gold" id="s-or">—</span></div>
+          <div class="si"><span class="sl">Last Update</span><span class="sv" id="s-up" style="font-size:10px">—</span></div>
+          <div class="si" style="grid-column:1/-1">
+            <span class="sl">Reason</span>
+            <span class="sv" id="s-rs" style="font-size:11px;text-align:right;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Equity Curve</div>
+      <div class="pb" style="padding-bottom:8px">
+        <div class="cw"><canvas id="eqc"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Positions filter magic=104 -->
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Open Positions (magic 104)</div>
+      <div style="overflow-x:auto">
+        <table class="post">
+          <thead>
+            <tr><th>Ticket</th><th>Symbol</th><th>Type</th><th>Lot</th>
+                <th>Open</th><th>Current</th><th>SL</th><th>TP</th>
+                <th>Profit</th><th>Comment</th></tr>
+          </thead>
+          <tbody id="pos-body"><tr><td colspan="10" class="empty">No open positions</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- COL 3 -->
+  <div class="col">
+
+    <!-- AI Memory dari AI_MEMORY.json -->
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>AI Memory</div>
+      <div style="padding:0">
+        <table class="ait">
+          <thead><tr><th>Pair</th><th>Thresh.</th><th>W / L</th><th>WR</th><th></th></tr></thead>
+          <tbody id="mem-body"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Scoring dari config -->
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>Scoring Weights</div>
+      <div class="pb">
+        <div class="dr"><span class="dl">EMA Align</span><span class="dv cyan"   id="sc-e">—</span></div>
+        <div class="dr"><span class="dl">BOS</span>      <span class="dv gold"   id="sc-b">—</span></div>
+        <div class="dr"><span class="dl">Candle</span>   <span class="dv"        id="sc-c">—</span></div>
+        <div class="dr"><span class="dl">ATR</span>      <span class="dv"        id="sc-a">—</span></div>
+        <div class="dr"><span class="dl">Spread</span>   <span class="dv"        id="sc-s">—</span></div>
+        <div class="dr" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+          <span class="dl">Max Score</span><span class="dv purple" id="sc-t">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Calibration dari config -->
+    <div class="panel">
+      <div class="ph"><div class="dot"></div>AI Calibration</div>
+      <div class="pb">
+        <div class="dr"><span class="dl">Default Thresh.</span><span class="dv purple" id="ai-d">—</span></div>
+        <div class="dr"><span class="dl">Min / Max</span>      <span class="dv"        id="ai-r">—</span></div>
+        <div class="dr"><span class="dl">Learning Rate</span>  <span class="dv"        id="ai-l">—</span></div>
+        <div class="dr"><span class="dl">Min Trades</span>     <span class="dv"        id="ai-m">—</span></div>
+        <div class="dr"><span class="dl">WR High / Low</span>  <span class="dv"        id="ai-w">—</span></div>
+        <div class="dr"><span class="dl">Adjust Step</span>    <span class="dv"        id="ai-s">—</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOT LOG full width -->
+  <div class="panel full">
+    <div class="ph">
+      <div class="dot"></div>V104_bot.log
+      <span style="margin-left:auto;font-size:10px;color:var(--text2);cursor:pointer" onclick="fetchLogs()">↻ refresh</span>
+    </div>
+    <div class="lb" id="logbox"><div class="ll">Waiting for bot...</div></div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ── CHART ──────────────────────────────────────────────
+const chart = new Chart(document.getElementById('eqc').getContext('2d'), {
+  type:'line',
+  data:{
+    labels:[],
+    datasets:[
+      {label:'Equity', data:[], borderColor:'#7b2ff7', backgroundColor:'rgba(123,47,247,.07)', borderWidth:2, fill:true, tension:0.4, pointRadius:0},
+      {label:'Balance',data:[], borderColor:'#00ff88', backgroundColor:'rgba(0,255,136,.03)',   borderWidth:1.5,fill:true,tension:0.4,pointRadius:0,borderDash:[4,4]}
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,animation:{duration:300},
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'#0c1421',borderColor:'#1a2d48',borderWidth:1,titleColor:'#6a8aaa',bodyColor:'#c8d8e8',callbacks:{label:c=>` $${c.parsed.y.toFixed(2)}`}}},
+    scales:{
+      x:{ticks:{color:'#6a8aaa',font:{family:'Share Tech Mono',size:10},maxRotation:0},grid:{color:'rgba(26,45,72,.4)'}},
+      y:{ticks:{color:'#6a8aaa',font:{family:'Share Tech Mono',size:10},callback:v=>'$'+v.toFixed(0)},grid:{color:'rgba(26,45,72,.4)'}}
+    }
+  }
+});
+const hist=[];
+function pushChart(b,e){
+  const t=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  hist.push({t,b,e}); if(hist.length>60) hist.shift();
+  chart.data.labels=hist.map(d=>d.t);
+  chart.data.datasets[0].data=hist.map(d=>d.e);
+  chart.data.datasets[1].data=hist.map(d=>d.b);
+  chart.update('none');
+}
+
+// ── HELPERS ────────────────────────────────────────────
+const $=id=>document.getElementById(id);
+const fmt=v=>`$${parseFloat(v).toFixed(2)}`;
+function set(id,txt,cls){const el=$(id);if(!el)return;el.textContent=txt??'—';if(cls!==undefined)el.className=cls;}
+
+// ── ACCOUNT ── /api/account ────────────────────────────
+async function fetchAccount(){
+  try{
+    const d=await fetch('/api/account').then(r=>r.json());
+    if(d.error) return;
+    set('tb-bal',fmt(d.balance)); set('tb-eq',fmt(d.equity));
+    set('a-bal',fmt(d.balance));  set('a-eq',fmt(d.equity));
+    set('a-mg',fmt(d.free_margin)); set('a-lv',`1:${d.leverage}`);
+    const fl=d.profit;
+    set('tb-fl',fmt(fl)); $('tb-fl').className=fl>=0?'green':'red';
+    set('a-fl',fmt(fl));  $('a-fl').className='dv '+(fl>=0?'green':'red');
+    const dd=d.balance>0?Math.max(0,(d.balance-d.equity)/d.balance*100):0;
+    const ds=`${dd.toFixed(2)}%`;
+    set('tb-dd',ds); set('a-dd',ds);
+    $('a-dd').className='dv '+(dd>3?'red':dd>1.5?'warn':'green');
+    $('dd-bar').style.width=Math.min(dd/5*100,100)+'%';
+    $('dd-bar').className='bf '+(dd>3?'brr':dd>1.5?'bwa':'bg');
+    pushChart(d.balance,d.equity);
+  }catch(e){}
+}
+
+// ── BOT STATUS ── /api/v104/status ─────────────────────
+let _ps=null;
+async function fetchStatus(){
+  try{
+    const d=await fetch('/api/v104/status').then(r=>r.json());
+    const badge=$('badge');
+    if(d.running){
+      badge.className='sbadge br'; badge.textContent='RUNNING';
+      set('s-st','ON'); $('s-st').className='sv';
+    } else {
+      badge.className='sbadge bs'; badge.textContent='STOPPED';
+      set('s-st','OFF'); $('s-st').className='sv red';
+    }
+    set('s-or',d.open_orders??'0'); set('tb-ord',d.open_orders??'0');
+    set('s-up',d.timestamp??'—');
+    set('s-rs',d.reason??'—');
+    const sg=d.signal||'';
+    set('s-sg',sg||'—'); set('tb-sig',sg||'—');
+    if(sg && sg!==_ps){
+      const b=$('sigb');
+      b.textContent=`🎯 V104 ${sg} — ${d.reason||''}`;
+      b.style.display='block';
+      setTimeout(()=>b.style.display='none',5000);
+      _ps=sg;
+    }
+    if(d.logs?.length) renderLogs(d.logs);
+  }catch(e){
+    $('badge').className='sbadge bo'; $('badge').textContent='OFFLINE';
+  }
+}
+
+// ── POSITIONS ── /api/positions (filter magic 104) ─────
+async function fetchPositions(){
+  try{
+    const all=await fetch('/api/positions').then(r=>r.json());
+    // tampilkan yang magic=104 atau semua kalau field magic tidak ada
+    const pos=all.filter(p=>p.magic===undefined||p.magic===null||p.magic===104);
+    const tb=$('pos-body');
+    if(!pos.length){
+      tb.innerHTML='<tr><td colspan="10" class="empty">No open positions</td></tr>'; return;
+    }
+    tb.innerHTML=pos.map(p=>{
+      const tc=p.type==='BUY'?'tb':'ts2';
+      const pc=p.profit>=0?'pp':'pn';
+      return `<tr>
+        <td>${p.ticket}</td>
+        <td style="color:var(--accent)">${p.symbol}</td>
+        <td><span class="${tc}">${p.type}</span></td>
+        <td>${p.volume}</td>
+        <td>${p.open_price}</td>
+        <td>${p.current_price}</td>
+        <td style="color:var(--danger)">${p.sl||'—'}</td>
+        <td style="color:var(--accent2)">${p.tp||'—'}</td>
+        <td class="${pc}">$${parseFloat(p.profit).toFixed(2)}</td>
+        <td style="color:var(--text2);font-size:11px">${p.comment||'—'}</td>
+      </tr>`;
+    }).join('');
+  }catch(e){}
+}
+
+// ── AI MEMORY ── /api/v104/memory ─────────────────────
+async function fetchMemory(){
+  try{
+    const d=await fetch('/api/v104/memory').then(r=>r.json());
+    if(!d.success) return;
+    const models=d.memory?.models||{};
+    const tb=$('mem-body');
+    if(!Object.keys(models).length){
+      tb.innerHTML='<tr><td colspan="5" class="empty">No model data yet</td></tr>'; return;
+    }
+    tb.innerHTML=Object.entries(models).map(([sym,m])=>{
+      const wr=m.trades>0?m.win/m.trades*100:0;
+      const wrc=wr>=60?'#00ff88':wr>=40?'#ffa502':'#ff4757';
+      const bc=wr>=60?'bg':wr>=40?'bwa':'brr';
+      return `<tr>
+        <td style="color:var(--gold);font-weight:700">${sym}</td>
+        <td style="color:var(--purple)">${m.threshold.toFixed(1)}</td>
+        <td><span style="color:var(--accent2)">${m.win}</span><span style="color:var(--text2)"> / </span><span style="color:var(--danger)">${m.loss}</span></td>
+        <td>
+          <span style="color:${wrc}">${wr.toFixed(1)}%</span>
+          <span class="wrw"><span class="wrf ${bc}" style="width:${Math.round(wr)}%"></span></span>
+        </td>
+        <td><button class="rst" onclick="resetModel('${sym}')">RST</button></td>
+      </tr>`;
+    }).join('');
+  }catch(e){}
+}
+
+// ── CONFIG ── /api/v104/config ─────────────────────────
+async function fetchConfig(){
+  try{
+    const d=await fetch('/api/v104/config').then(r=>r.json());
+    if(!d.success) return;
+    const c=d.config;
+
+    // Risk
+    const r=c.risk||{};
+    set('c-bl',r.base_lot??'—');
+    set('c-mm',`${r.min_lot??'—'} / ${r.max_lot??'—'}`);
+    set('c-dd',`${r.target_dd??'—'}%`);
+    set('c-sl',`${c.sl_tp?.atr_multiplier_sl??'—'}×`);
+    set('c-tp',`${c.sl_tp?.atr_multiplier_tp??'—'}×`);
+    set('c-cd',`${r.cooldown_sec??'—'}s`);
+    set('c-sp',`${c.filters?.max_spread??'—'} pts`);
+    set('c-at',`${c.filters?.atr_min_pips??'—'}–${c.filters?.atr_max_pips??'—'} pips`);
+
+    // Pair hierarchy — render dari config.pairs
+    const pairs=c.pairs||{};
+    const clsMap={core:'pc',hedge:'ph2',synthetic:'ps',booster:'pbo'};
+    if(Object.keys(pairs).length){
+      $('pair-hier').innerHTML=Object.entries(pairs).map(([role,syms])=>`
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;color:var(--text2);letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">${role}</div>
+          ${(Array.isArray(syms)?syms:[syms]).map(s=>`<span class="pb2 ${clsMap[role]||'ph2'}">${s}</span>`).join('')}
+        </div>`).join('');
+    }
+
+    // Scoring
+    const sc=c.scoring||{};
+    const tot=(sc.ema_align||0)+(sc.bos||0)+(sc.candle||0)+(sc.atr||0)+(sc.spread||0);
+    set('sc-e',sc.ema_align??'—'); set('sc-b',sc.bos??'—');
+    set('sc-c',sc.candle??'—');    set('sc-a',sc.atr??'—');
+    set('sc-s',sc.spread??'—');    set('sc-t',tot||'—');
+
+    // AI
+    const ai=c.ai||{};
+    set('ai-d',ai.threshold_default??'—');
+    set('ai-r',`${ai.threshold_min??'—'} – ${ai.threshold_max??'—'}`);
+    set('ai-l',ai.learning_rate??'—');
+    set('ai-m',ai.min_trades_learn??'—');
+    set('ai-w',`${((ai.wr_high??0)*100).toFixed(0)}% / ${((ai.wr_low??0)*100).toFixed(0)}%`);
+    set('ai-s',ai.adjust_step??'—');
+  }catch(e){}
+}
+
+// ── LOGS ── /api/v104/logs ─────────────────────────────
+async function fetchLogs(){
+  try{
+    const d=await fetch('/api/v104/logs').then(r=>r.json());
+    if(d.success&&d.logs?.length) renderLogs(d.logs);
+  }catch(e){}
+}
+function renderLogs(lines){
+  const box=$('logbox');
+  box.innerHTML='';
+  [...lines].reverse().forEach(line=>{
+    const div=document.createElement('div');
+    const lo=line.toLowerCase();
+    div.className='ll'+(
+      lo.includes('filled')||lo.includes('✓')||lo.includes('connected')?' ok':
+      lo.includes('error')||lo.includes('failed')?' err':
+      lo.includes('warning')||lo.includes('suspended')||lo.includes('cooldown')?' warn':
+      lo.includes('started')||lo.includes('cycle')||lo.includes('bot')?' info':''
+    );
+    div.textContent=line;
+    box.appendChild(div);
+  });
+}
+
+// ── CONTROLS ───────────────────────────────────────────
+async function startBot(){
+  try{const d=await fetch('/api/v104/start',{method:'POST'}).then(r=>r.json());alert(d.message||d.error);fetchStatus();}
+  catch(e){alert('Error: '+e.message);}
+}
+async function stopBot(){
+  if(!confirm('Stop V104?\nPosisi terbuka tetap berjalan.')) return;
+  try{const d=await fetch('/api/v104/stop',{method:'POST'}).then(r=>r.json());alert(d.message||d.error);fetchStatus();}
+  catch(e){alert('Error: '+e.message);}
+}
+async function resetModel(sym){
+  if(!confirm(`Reset AI model ${sym}?\nThreshold & win/loss kembali ke default.`)) return;
+  try{
+    const d=await fetch(`/api/v104/memory/reset/${sym}`,{method:'POST'}).then(r=>r.json());
+    alert(d.message||d.error); fetchMemory();
+  }catch(e){alert('Error: '+e.message);}
+}
+
+// ── CLOCK & INIT ───────────────────────────────────────
+function tick(){ $('tb-time').textContent=new Date().toLocaleTimeString('en-GB'); }
+
+async function init(){
+  await Promise.all([fetchAccount(),fetchStatus(),fetchPositions(),fetchMemory(),fetchConfig()]);
+  fetchLogs();
+  setInterval(fetchStatus,    3000);
+  setInterval(fetchAccount,   5000);
+  setInterval(fetchPositions, 5000);
+  setInterval(fetchMemory,   15000);
+  setInterval(fetchLogs,     10000);
+  setInterval(tick,           1000);
+}
+init();
+</script>
+</body>
+</html>

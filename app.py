@@ -16,6 +16,19 @@ from news_collector import NewsCollector, start_news_updater
 from trade_history import TradeHistoryManager
 import time as _time 
 import subprocess
+import subprocess as _subprocess
+import json as _json
+import os as _os
+import time as _time2
+from datetime import datetime as _datetime
+ 
+# Path file state untuk V104
+V104_STATE_FILE = "config/.v104_state.json"
+V104_STOP_FILE  = "config/.stop_v104"
+V104_MEMORY     = "AI_MEMORY.json"
+V104_CONFIG     = "V104_AI_CONFIG.json"
+ 
+_v104_process = None  # global process handle
 app = Flask(__name__)
 
 # Configuration
@@ -1600,6 +1613,162 @@ def _generate_trade_reason(symbol, trade_type, open_price, close_price, profit):
         reasons.append("Trade closed at breakeven")
 
     return " | ".join(reasons)
+
+
+@app.route('/bot2')
+def bot2_dashboard():
+    """Dashboard khusus V104 / bot2.py"""
+    return render_template('bot2_dashboard.html')
+ 
+ 
+# ── API: status V104 ───────────────────────────────────────────────────
+@app.route('/api/v104/status')
+def api_v104_status():
+    """
+    Baca status V104 dari shared state file.
+    bot2.py harus menulis ke config/.v104_state.json setiap cycle.
+    """
+    try:
+        if not _os.path.exists(V104_STATE_FILE):
+            return jsonify({
+                "running": False,
+                "reason": "Bot V104 tidak berjalan",
+                "pairs": {},
+                "balance": 0,
+                "dd": 0,
+                "open_orders": 0,
+            })
+ 
+        age = _time2.time() - _os.path.getmtime(V104_STATE_FILE)
+ 
+        with open(V104_STATE_FILE, 'r') as f:
+            state = _json.load(f)
+ 
+        state["running"] = age < 20          # anggap mati kalau > 20 detik
+        state["last_update_seconds_ago"] = round(age, 1)
+        return jsonify(state)
+ 
+    except Exception as e:
+        return jsonify({"running": False, "error": str(e)})
+ 
+ 
+# ── API: start V104 ────────────────────────────────────────────────────
+@app.route('/api/v104/start', methods=['POST'])
+def api_v104_start():
+    global _v104_process
+    try:
+        # Hapus stop signal kalau ada
+        if _os.path.exists(V104_STOP_FILE):
+            _os.remove(V104_STOP_FILE)
+ 
+        if _v104_process and _v104_process.poll() is None:
+            return jsonify({"success": False, "message": "V104 sudah berjalan"})
+ 
+        _v104_process = _subprocess.Popen(
+            ["python", "bot2.py"],
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+        )
+        return jsonify({
+            "success": True,
+            "message": "V104 bot dimulai",
+            "pid": _v104_process.pid,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+ 
+ 
+# ── API: stop V104 ─────────────────────────────────────────────────────
+@app.route('/api/v104/stop', methods=['POST'])
+def api_v104_stop():
+    try:
+        _os.makedirs("config", exist_ok=True)
+        with open(V104_STOP_FILE, 'w') as f:
+            f.write(_datetime.now().isoformat())
+        return jsonify({
+            "success": True,
+            "message": "Stop signal dikirim. V104 akan berhenti di cycle berikutnya.",
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+ 
+ 
+# ── API: baca AI_MEMORY.json ───────────────────────────────────────────
+@app.route('/api/v104/memory')
+def api_v104_memory():
+    """Kembalikan isi AI_MEMORY.json (model threshold, win/loss per pair)."""
+    try:
+        if not _os.path.exists(V104_MEMORY):
+            return jsonify({"success": False, "error": "AI_MEMORY.json tidak ditemukan"})
+        with open(V104_MEMORY) as f:
+            mem = _json.load(f)
+        return jsonify({"success": True, "memory": mem})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+ 
+ 
+# ── API: baca V104_AI_CONFIG.json ──────────────────────────────────────
+@app.route('/api/v104/config')
+def api_v104_config():
+    """Kembalikan isi V104_AI_CONFIG.json."""
+    try:
+        if not _os.path.exists(V104_CONFIG):
+            return jsonify({"success": False, "error": "V104_AI_CONFIG.json tidak ditemukan"})
+        with open(V104_CONFIG) as f:
+            cfg = _json.load(f)
+        return jsonify({"success": True, "config": cfg})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+ 
+ 
+# ── API: reset AI memory untuk satu pair ──────────────────────────────
+@app.route('/api/v104/memory/reset/<symbol>', methods=['POST'])
+def api_v104_memory_reset(symbol):
+    """Reset threshold, win, loss untuk symbol tertentu ke default."""
+    try:
+        if not _os.path.exists(V104_MEMORY):
+            return jsonify({"success": False, "error": "AI_MEMORY.json tidak ditemukan"})
+ 
+        with open(V104_MEMORY) as f:
+            mem = _json.load(f)
+ 
+        cfg_threshold = 90
+        if _os.path.exists(V104_CONFIG):
+            with open(V104_CONFIG) as f:
+                cfg = _json.load(f)
+            cfg_threshold = cfg.get("ai", {}).get("threshold_default", 90)
+ 
+        mem["models"][symbol] = {
+            "threshold": cfg_threshold,
+            "win": 0,
+            "loss": 0,
+            "trades": 0,
+        }
+ 
+        with open(V104_MEMORY, 'w') as f:
+            _json.dump(mem, f, indent=2)
+ 
+        return jsonify({"success": True, "message": f"Model {symbol} direset ke threshold {cfg_threshold}"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+ 
+ 
+# ── API: log V104 (baca dari file log terbaru) ─────────────────────────
+@app.route('/api/v104/logs')
+def api_v104_logs():
+    """Ambil 80 baris terakhir dari V104_bot.log."""
+    try:
+        log_file = "V104_bot.log"
+        if not _os.path.exists(log_file):
+            return jsonify({"success": True, "logs": ["Log file belum ada."]})
+ 
+        with open(log_file, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+ 
+        last_lines = [l.rstrip() for l in lines[-80:]]
+        return jsonify({"success": True, "logs": last_lines})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "logs": []})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -1,0 +1,63 @@
+{
+  "version": "V104",
+
+  "risk": {
+    "base_lot": 0.03,
+    "min_lot": 0.01,
+    "max_lot": 0.10,
+    "target_dd": 5.0,
+    "cooldown_sec": 60
+  },
+
+  "pairs": {
+    "core": ["XAUUSD"],
+    "hedge": ["USDJPY"],
+    "synthetic": ["EURUSD", "GBPUSD"],
+    "booster": ["GBPJPY"]
+  },
+
+  "scoring": {
+    "ema_align": 15,
+    "bos": 20,
+    "candle": 15,
+    "atr": 15,
+    "spread": 10
+  },
+
+  "filters": {
+    "session_hours": [13, 22],
+    "max_spread": {
+      "XAUUSD": 350,
+      "GBPJPY": 50,
+      "USDJPY": 30,
+      "EURUSD": 20,
+      "GBPUSD": 25,
+      "default": 50
+    },
+    "atr_min_pips": 5,
+    "atr_max_pips": 99999
+  },
+
+  "sl_tp": {
+    "atr_multiplier_sl": 1.5,
+    "atr_multiplier_tp": 2.5
+  },
+
+  "logic": {
+    "synthetic_enable_score": 55,
+    "synthetic_dd_limit": 3.0,
+    "hedge_dd_limit": 4.0,
+    "booster_dd_limit": 4.0
+  },
+
+  "ai": {
+    "threshold_default": 55,
+    "threshold_min": 40,
+    "threshold_max": 70,
+    "learning_rate": 0.05,
+    "min_trades_learn": 10,
+    "wr_high": 0.60,
+    "wr_low": 0.40,
+    "adjust_step": 5
+  }
+}
