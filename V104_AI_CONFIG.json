@@ -51,9 +51,9 @@
   },
 
   "ai": {
-    "threshold_default": 55,
-    "threshold_min": 40,
-    "threshold_max": 70,
+    "threshold_default": 80,
+    "threshold_min": 50,
+    "threshold_max": 90,
     "learning_rate": 0.05,
     "min_trades_learn": 10,
     "wr_high": 0.60,
