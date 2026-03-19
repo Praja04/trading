@@ -535,18 +535,23 @@ def calc_sl_tp(
     """
     ATR-based SL & TP. Multiplier dibaca dari config sl_tp.
     Return (sl_price, tp_price) atau (0.0, 0.0) kalau gagal.
+    Selalu gunakan resolved symbol dari cache.
     """
-    sl_tp = config.get("sl_tp", {})
+    sl_tp   = config.get("sl_tp", {})
     sl_mult = sl_tp.get("atr_multiplier_sl", 1.5)
     tp_mult = sl_tp.get("atr_multiplier_tp", 2.5)
 
-    rates = get_rates(symbol)
+    # Pakai resolved symbol (XAUUSDm, bukan XAUUSD)
+    resolved = _symbol_cache.get(symbol, symbol)
+
+    rates = get_rates(symbol)   # get_rates sudah handle resolve via cache
     if rates is None:
         return 0.0, 0.0
 
     atr  = calc_atr(rates)
-    tick = mt5.symbol_info_tick(symbol)
+    tick = mt5.symbol_info_tick(resolved)
     if tick is None:
+        log.warning("calc_sl_tp: no tick for %s (resolved=%s)", symbol, resolved)
         return 0.0, 0.0
 
     price   = tick.ask if direction == 1 else tick.bid
@@ -560,7 +565,7 @@ def calc_sl_tp(
         sl = price + sl_dist
         tp = price - tp_dist
 
-    info   = mt5.symbol_info(symbol)
+    info   = mt5.symbol_info(resolved)
     digits = info.digits if info else 5
     return round(sl, digits), round(tp, digits)
 
@@ -647,21 +652,33 @@ def send_order(
     tp: float,
     comment: str = "V104",
 ) -> bool:
-    tick = mt5.symbol_info_tick(symbol)
-    info = mt5.symbol_info(symbol)
+    # Selalu pakai resolved symbol (XAUUSDm, bukan XAUUSD)
+    resolved = _symbol_cache.get(symbol, symbol)
+
+    tick = mt5.symbol_info_tick(resolved)
+    info = mt5.symbol_info(resolved)
     if tick is None or info is None:
-        v104_log(f"Cannot fetch tick/info for {symbol}", "error")
+        v104_log(f"Cannot fetch tick/info for {symbol} (resolved={resolved})", "error")
         return False
 
     if not info.visible:
-        mt5.symbol_select(symbol, True)
+        mt5.symbol_select(resolved, True)
+
+    # Cek filling mode yang didukung broker
+    filling = mt5.ORDER_FILLING_IOC
+    if info.filling_mode & 1:      # FOK supported
+        filling = mt5.ORDER_FILLING_FOK
+    elif info.filling_mode & 2:    # IOC supported
+        filling = mt5.ORDER_FILLING_IOC
+    else:                          # Return / Market
+        filling = mt5.ORDER_FILLING_RETURN
 
     order_type = mt5.ORDER_TYPE_BUY if direction == 1 else mt5.ORDER_TYPE_SELL
     price      = tick.ask if direction == 1 else tick.bid
 
     request = {
         "action":       mt5.TRADE_ACTION_DEAL,
-        "symbol":       symbol,
+        "symbol":       resolved,   # pakai resolved name
         "volume":       lot,
         "type":         order_type,
         "price":        price,
@@ -671,21 +688,21 @@ def send_order(
         "magic":        104,
         "comment":      comment,
         "type_time":    mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": filling,
     }
 
     result = mt5.order_send(request)
 
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         v104_log(
-            f"ORDER FILLED ✓ | {'BUY' if direction==1 else 'SELL'} {symbol} | "
+            f"ORDER FILLED ✓ | {'BUY' if direction==1 else 'SELL'} {resolved} | "
             f"lot={lot:.2f} price={price:.5f} SL={sl:.5f} TP={tp:.5f}"
         )
         mark_traded(symbol)
         return True
     else:
         v104_log(
-            f"Order FAILED | {symbol} | retcode={result.retcode} "
+            f"Order FAILED | {resolved} | retcode={result.retcode} "
             f"comment={result.comment}",
             "error",
         )
@@ -704,7 +721,8 @@ def get_account_state() -> tuple[float, float]:
 
 
 def has_open_position(symbol: str) -> bool:
-    positions = mt5.positions_get(symbol=symbol)
+    resolved  = _symbol_cache.get(symbol, symbol)
+    positions = mt5.positions_get(symbol=resolved)
     return positions is not None and len(positions) > 0
 
 
