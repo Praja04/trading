@@ -1753,6 +1753,139 @@ def api_v104_memory_reset(symbol):
         return jsonify({"success": False, "error": str(e)})
  
  
+# ======================================================================
+# SCRIPT RUNNER — upload .py, jalankan sekali, output ke config/script_outputs/
+# ======================================================================
+
+SCRIPTS_FOLDER  = "config/scripts"
+OUTPUTS_FOLDER  = "config/script_outputs"
+SCRIPT_TIMEOUT  = 300  # 5 menit
+
+os.makedirs(SCRIPTS_FOLDER,  exist_ok=True)
+os.makedirs(OUTPUTS_FOLDER,  exist_ok=True)
+
+def allowed_script(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'py'
+
+
+@app.route('/api/script/upload', methods=['POST'])
+def api_script_upload():
+    """Terima file .py, simpan ke config/scripts/"""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'Tidak ada file yang dikirim'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'Nama file kosong'}), 400
+
+    if not allowed_script(file.filename):
+        return jsonify({'success': False, 'error': 'Hanya file .py yang diperbolehkan'}), 400
+
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(SCRIPTS_FOLDER, filename)
+    file.save(save_path)
+
+    return jsonify({'success': True, 'filename': filename, 'message': f'{filename} berhasil diupload'})
+
+
+@app.route('/api/script/run/<filename>', methods=['POST'])
+def api_script_run(filename):
+    """
+    Jalankan script .py dari config/scripts/ dengan working dir config/script_outputs/.
+    Timeout 5 menit. Jika error atau timeout, kembalikan error tanpa buat .txt.
+    """
+    safe_name = secure_filename(filename)
+    script_path = os.path.abspath(os.path.join(SCRIPTS_FOLDER, safe_name))
+    output_dir  = os.path.abspath(OUTPUTS_FOLDER)
+
+    if not os.path.exists(script_path):
+        return jsonify({'success': False, 'error': f'Script {safe_name} tidak ditemukan'}), 404
+
+    try:
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            timeout=SCRIPT_TIMEOUT,
+            cwd=output_dir,          # working dir = output folder, opsi C
+        )
+
+        if result.returncode != 0:
+            # Script exit dengan error
+            err_msg = result.stderr.strip() or result.stdout.strip() or 'Script keluar dengan error tanpa pesan.'
+            return jsonify({
+                'success': False,
+                'error': err_msg,
+                'returncode': result.returncode
+            }), 200  # 200 supaya JS bisa baca body-nya
+
+        # Berhasil — list file .txt baru di output folder
+        txt_files = [f for f in os.listdir(output_dir) if f.endswith('.txt')]
+        return jsonify({
+            'success': True,
+            'message': f'Script {safe_name} selesai dijalankan',
+            'stdout': result.stdout[-2000:] if result.stdout else '',
+            'output_files': txt_files
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': f'Script melebihi batas waktu 5 menit dan dihentikan otomatis.'
+        }), 200
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/script/list')
+def api_script_list():
+    """List semua script .py yang sudah diupload dan file output .txt."""
+    try:
+        scripts = sorted([
+            f for f in os.listdir(SCRIPTS_FOLDER) if f.endswith('.py')
+        ])
+        outputs = sorted([
+            f for f in os.listdir(OUTPUTS_FOLDER) if f.endswith('.txt')
+        ])
+        return jsonify({'success': True, 'scripts': scripts, 'outputs': outputs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/script/output/<filename>')
+def api_script_output(filename):
+    """Baca isi file .txt dari config/script_outputs/"""
+    safe_name = secure_filename(filename)
+    file_path = os.path.join(OUTPUTS_FOLDER, safe_name)
+
+    if not os.path.exists(file_path):
+        return jsonify({'success': False, 'error': 'File tidak ditemukan'}), 404
+
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+        return jsonify({'success': True, 'filename': safe_name, 'content': content})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/script/delete/<filename>', methods=['DELETE'])
+def api_script_delete(filename):
+    """Hapus script .py dari config/scripts/"""
+    safe_name = secure_filename(filename)
+    script_path = os.path.join(SCRIPTS_FOLDER, safe_name)
+
+    if not os.path.exists(script_path):
+        return jsonify({'success': False, 'error': 'Script tidak ditemukan'}), 404
+
+    try:
+        os.remove(script_path)
+        return jsonify({'success': True, 'message': f'{safe_name} dihapus'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ── API: log V104 (baca dari file log terbaru) ─────────────────────────
 @app.route('/api/v104/logs')
 def api_v104_logs():
