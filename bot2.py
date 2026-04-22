@@ -487,7 +487,6 @@ def score_market(symbol: str, config: dict) -> tuple[int, int]:
         limit = max_spread
     if spread < limit:
         score += sc["spread"]
-        score += sc["spread"]
 
     # EMA trend alignment
     closes   = rates["close"].astype(float)
@@ -527,36 +526,96 @@ def auto_lot(balance: float, dd: float, config: dict) -> float:
 # ─────────────────────────────────────────────
 # SL / TP
 # ─────────────────────────────────────────────
+
+# Dollar cap per-symbol: max loss & target profit dalam USD
+# Bisa di-override lewat V104_AI_CONFIG.json di key "sl_tp.dollar_caps"
+_DEFAULT_DOLLAR_CAPS: dict[str, dict] = {
+    "XAUUSD": {"sl_usd": 25.0,  "tp_usd": 125.0},
+    "GBPJPY": {"sl_usd": 20.0,  "tp_usd":  80.0},
+    "USDJPY": {"sl_usd": 15.0,  "tp_usd":  60.0},
+    "EURUSD": {"sl_usd": 15.0,  "tp_usd":  60.0},
+    "GBPUSD": {"sl_usd": 15.0,  "tp_usd":  60.0},
+}
+
+
 def calc_sl_tp(
     symbol: str,
     direction: int,
     config: dict,
+    lot: float = 0.03,
 ) -> tuple[float, float]:
     """
-    ATR-based SL & TP. Multiplier dibaca dari config sl_tp.
+    SL/TP dengan dollar cap per-symbol supaya risiko terkontrol.
+
+    Logika:
+    1. Hitung SL/TP berbasis ATR (pendekatan teknikal).
+    2. Konversi ke dollar risk/reward berdasarkan lot & tick value.
+    3. Cap: kalau dollar risk > sl_usd → perkecil jarak SL.
+            kalau dollar reward < tp_usd → besarkan jarak TP.
+    4. Pastikan R:R >= 3:1 (TP minimal 3× SL distance).
+
     Return (sl_price, tp_price) atau (0.0, 0.0) kalau gagal.
-    Selalu gunakan resolved symbol dari cache.
     """
-    sl_tp   = config.get("sl_tp", {})
-    sl_mult = sl_tp.get("atr_multiplier_sl", 1.5)
-    tp_mult = sl_tp.get("atr_multiplier_tp", 2.5)
+    sl_tp_cfg = config.get("sl_tp", {})
+    sl_mult   = sl_tp_cfg.get("atr_multiplier_sl", 1.5)
+    tp_mult   = sl_tp_cfg.get("atr_multiplier_tp", 2.5)
 
-    # Pakai resolved symbol (XAUUSDm, bukan XAUUSD)
+    # Dollar caps: bisa di-override dari config
+    caps_cfg  = sl_tp_cfg.get("dollar_caps", {})
+    base_key  = symbol.upper().replace("M", "").replace(".S", "")
+    caps      = caps_cfg.get(symbol) or caps_cfg.get(base_key) or _DEFAULT_DOLLAR_CAPS.get(base_key, {})
+    max_sl_usd = caps.get("sl_usd", 30.0)
+    min_tp_usd = caps.get("tp_usd", 90.0)
+
     resolved = _symbol_cache.get(symbol, symbol)
-
-    rates = get_rates(symbol)   # get_rates sudah handle resolve via cache
+    rates    = get_rates(symbol)
     if rates is None:
         return 0.0, 0.0
 
     atr  = calc_atr(rates)
     tick = mt5.symbol_info_tick(resolved)
-    if tick is None:
-        log.warning("calc_sl_tp: no tick for %s (resolved=%s)", symbol, resolved)
+    info = mt5.symbol_info(resolved)
+    if tick is None or info is None:
+        log.warning("calc_sl_tp: no tick/info for %s (resolved=%s)", symbol, resolved)
         return 0.0, 0.0
 
-    price   = tick.ask if direction == 1 else tick.bid
-    sl_dist = atr * sl_mult
-    tp_dist = atr * tp_mult
+    price       = tick.ask if direction == 1 else tick.bid
+    tick_value  = info.trade_tick_value   # USD per 1 tick per 1 lot
+    tick_size   = info.trade_tick_size    # ukuran 1 tick dalam harga
+    digits      = info.digits
+
+    if tick_value <= 0 or tick_size <= 0:
+        log.warning("calc_sl_tp: tick_value/size invalid for %s", symbol)
+        return 0.0, 0.0
+
+    # Konversi 1 unit price distance → dollar per lot
+    usd_per_price_unit = tick_value / tick_size  # USD per 1.0 harga per lot
+
+    # --- ATR-based distance awal ---
+    sl_dist_atr = atr * sl_mult
+    tp_dist_atr = atr * tp_mult
+
+    # --- Dollar risk/reward dari ATR ---
+    sl_usd_atr = sl_dist_atr * usd_per_price_unit * lot
+    tp_usd_atr = tp_dist_atr * usd_per_price_unit * lot
+
+    # --- Terapkan dollar cap ---
+    # SL: kalau terlalu besar → perkecil jaraknya
+    if sl_usd_atr > max_sl_usd:
+        sl_dist = max_sl_usd / (usd_per_price_unit * lot)
+    else:
+        sl_dist = sl_dist_atr
+
+    # TP: utamakan TP, pastikan minimal min_tp_usd
+    tp_dist_from_budget = min_tp_usd / (usd_per_price_unit * lot)
+    if tp_usd_atr < min_tp_usd:
+        tp_dist = tp_dist_from_budget
+    else:
+        tp_dist = tp_dist_atr
+
+    # Pastikan R:R minimal 3:1
+    if tp_dist < sl_dist * 3.0:
+        tp_dist = sl_dist * 3.0
 
     if direction == 1:
         sl = price - sl_dist
@@ -565,8 +624,17 @@ def calc_sl_tp(
         sl = price + sl_dist
         tp = price - tp_dist
 
-    info   = mt5.symbol_info(resolved)
-    digits = info.digits if info else 5
+    sl_usd_final = sl_dist * usd_per_price_unit * lot
+    tp_usd_final = tp_dist * usd_per_price_unit * lot
+
+    log.info(
+        "SL/TP %s | price=%.5f SL=%.5f TP=%.5f | "
+        "risk=$%.2f reward=$%.2f RR=1:%.1f",
+        symbol, price, sl, tp,
+        sl_usd_final, tp_usd_final,
+        tp_usd_final / sl_usd_final if sl_usd_final > 0 else 0,
+    )
+
     return round(sl, digits), round(tp, digits)
 
 
@@ -709,6 +777,163 @@ def send_order(
         return False
 
 
+def close_all_positions(reason: str = "DD limit") -> int:
+    """
+    Close semua posisi yang terbuka. Return jumlah posisi yang berhasil ditutup.
+    Dipanggil ketika DD mencapai target untuk membatasi kerugian lebih lanjut.
+    """
+    positions = mt5.positions_get()
+    if not positions:
+        return 0
+
+    closed = 0
+    for pos in positions:
+        sym      = pos.symbol
+        info     = mt5.symbol_info(sym)
+        tick     = mt5.symbol_info_tick(sym)
+        if info is None or tick is None:
+            continue
+
+        # Arah close: kebalikan dari posisi terbuka
+        if pos.type == mt5.ORDER_TYPE_BUY:
+            order_type = mt5.ORDER_TYPE_SELL
+            price      = tick.bid
+        else:
+            order_type = mt5.ORDER_TYPE_BUY
+            price      = tick.ask
+
+        filling = mt5.ORDER_FILLING_IOC
+        if info.filling_mode & 1:
+            filling = mt5.ORDER_FILLING_FOK
+        elif info.filling_mode & 2:
+            filling = mt5.ORDER_FILLING_IOC
+        else:
+            filling = mt5.ORDER_FILLING_RETURN
+
+        request = {
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "symbol":       sym,
+            "volume":       pos.volume,
+            "type":         order_type,
+            "position":     pos.ticket,
+            "price":        price,
+            "deviation":    20,
+            "magic":        104,
+            "comment":      f"V104-CLOSE:{reason}",
+            "type_time":    mt5.ORDER_TIME_GTC,
+            "type_filling": filling,
+        }
+
+        result = mt5.order_send(request)
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            v104_log(f"CLOSED ✓ | ticket={pos.ticket} {sym} | reason={reason}")
+            closed += 1
+        else:
+            v104_log(
+                f"Close FAILED | ticket={pos.ticket} {sym} | "
+                f"retcode={result.retcode} comment={result.comment}",
+                "error",
+            )
+
+    return closed
+
+
+# ─────────────────────────────────────────────
+# TRAILING STOP
+# ─────────────────────────────────────────────
+def manage_trailing_stops(config: dict) -> None:
+    """
+    Trailing stop untuk semua posisi terbuka milik bot (magic=104).
+
+    Cara kerja:
+    - Setiap posisi: hitung "trail distance" dari ATR × trail atr_mult.
+    - Kalau harga sudah bergerak menguntungkan >= trigger_rr × sl_dist dari entry,
+      geser SL ikuti harga dengan jarak trail_dist.
+    - SL baru tidak boleh lebih buruk dari SL lama (only trail in profit direction).
+
+    Contoh BUY entry=2000, SL=1975, harga naik ke 2040:
+      sl_dist=25, trigger saat profit >= 12.5 (0.5×25)
+      trail_dist = ATR (misalnya 15) → SL baru = 2040-15 = 2025 ✓ (naik dari 1975)
+
+    Konfigurasi di V104_AI_CONFIG.json key "trailing_stop":
+      enabled     : true/false
+      trigger_rr  : mulai trail setelah profit >= X × sl_dist (default 0.5)
+      atr_mult    : jarak trailing = ATR × ini (default 1.0)
+    """
+    trail_cfg      = config.get("trailing_stop", {})
+    enabled        = trail_cfg.get("enabled", True)
+    trigger_rr     = trail_cfg.get("trigger_rr", 0.5)
+    trail_atr_mult = trail_cfg.get("atr_mult", 1.0)
+
+    if not enabled:
+        return
+
+    positions = mt5.positions_get()
+    if not positions:
+        return
+
+    for pos in positions:
+        if pos.magic != 104:
+            continue
+
+        sym      = pos.symbol
+        tick     = mt5.symbol_info_tick(sym)
+        info     = mt5.symbol_info(sym)
+        if tick is None or info is None:
+            continue
+
+        current_price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+        entry_price   = pos.price_open
+        current_sl    = pos.sl
+        digits        = info.digits
+
+        sl_dist = abs(entry_price - current_sl) if current_sl > 0 else 0
+        if sl_dist <= 0:
+            continue
+
+        rates = get_rates(sym)
+        if rates is None:
+            continue
+        atr        = calc_atr(rates)
+        trail_dist = min(atr * trail_atr_mult, sl_dist)
+
+        if pos.type == mt5.ORDER_TYPE_BUY:
+            profit_dist = current_price - entry_price
+            if profit_dist < sl_dist * trigger_rr:
+                continue
+            new_sl = round(current_price - trail_dist, digits)
+            if new_sl <= current_sl:
+                continue
+        else:
+            profit_dist = entry_price - current_price
+            if profit_dist < sl_dist * trigger_rr:
+                continue
+            new_sl = round(current_price + trail_dist, digits)
+            if new_sl >= current_sl:
+                continue
+
+        request = {
+            "action":   mt5.TRADE_ACTION_SLTP,
+            "symbol":   sym,
+            "position": pos.ticket,
+            "sl":       new_sl,
+            "tp":       pos.tp,
+        }
+        result = mt5.order_send(request)
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            v104_log(
+                f"TRAIL ✓ | {'BUY' if pos.type==0 else 'SELL'} {sym} "
+                f"| SL {current_sl:.{digits}f} → {new_sl:.{digits}f} "
+                f"| price={current_price:.{digits}f}"
+            )
+        else:
+            v104_log(
+                f"Trail modify FAILED | {sym} ticket={pos.ticket} "
+                f"retcode={result.retcode}",
+                "warning",
+            )
+
+
 # ─────────────────────────────────────────────
 # ACCOUNT STATE
 # ─────────────────────────────────────────────
@@ -741,13 +966,16 @@ def trade_engine(config: dict, memory: dict) -> tuple[list, str, str]:
     signal = ""
     reason = "Score < threshold"
 
-    # Hard DD circuit breaker
+    # Hard DD circuit breaker — close semua posisi & suspend trading
     if dd >= config["risk"]["target_dd"]:
         v104_log(
             f"DD {dd:.2f}% ≥ target {config['risk']['target_dd']}% "
-            "— trading suspended.", "warning"
+            "— menutup semua posisi & suspend trading.", "warning"
         )
-        return trades_executed, signal, "DD limit reached"
+        closed = close_all_positions(reason=f"DD {dd:.2f}%")
+        if closed:
+            v104_log(f"DD protection: {closed} posisi ditutup.", "warning")
+        return trades_executed, signal, f"DD limit reached ({dd:.2f}%) — {closed} pos closed"
 
     cooldown = config["risk"]["cooldown_sec"]
     logic    = config["logic"]
@@ -769,7 +997,7 @@ def trade_engine(config: dict, memory: dict) -> tuple[list, str, str]:
         )
 
         if score >= xau_model["threshold"] and direction != 0:
-            sl, tp = calc_sl_tp(xau, direction, config)
+            sl, tp = calc_sl_tp(xau, direction, config, lot=lot_base)
             if sl > 0:
                 ok = send_order(xau, direction, lot_base, sl, tp, "V104-CORE")
                 if ok:
@@ -780,9 +1008,9 @@ def trade_engine(config: dict, memory: dict) -> tuple[list, str, str]:
             # HEDGE: USDJPY
             if dd < logic["hedge_dd_limit"] and not has_open_position("USDJPY"):
                 hedge_dir    = -direction
-                sl_h, tp_h   = calc_sl_tp("USDJPY", hedge_dir, config)
+                lot_h        = round(lot_base * 0.5, 2)
+                sl_h, tp_h   = calc_sl_tp("USDJPY", hedge_dir, config, lot=lot_h)
                 if sl_h > 0:
-                    lot_h = round(lot_base * 0.5, 2)
                     ok_h  = send_order("USDJPY", hedge_dir, lot_h, sl_h, tp_h, "V104-HEDGE")
                     if ok_h:
                         trades_executed.append(("USDJPY", "BUY" if hedge_dir==1 else "SELL", lot_h))
@@ -792,9 +1020,9 @@ def trade_engine(config: dict, memory: dict) -> tuple[list, str, str]:
                     and dd < logic["synthetic_dd_limit"]):
                 for sym, ratio in [("EURUSD", 0.5), ("GBPUSD", 0.4)]:
                     if not has_open_position(sym):
-                        sl_s, tp_s = calc_sl_tp(sym, direction, config)
+                        lot_s      = round(lot_base * ratio, 2)
+                        sl_s, tp_s = calc_sl_tp(sym, direction, config, lot=lot_s)
                         if sl_s > 0:
-                            lot_s = round(lot_base * ratio, 2)
                             ok_s  = send_order(sym, direction, lot_s, sl_s, tp_s, "V104-SYNTH")
                             if ok_s:
                                 trades_executed.append((sym, "BUY" if direction==1 else "SELL", lot_s))
@@ -814,10 +1042,10 @@ def trade_engine(config: dict, memory: dict) -> tuple[list, str, str]:
             f"dir={dir_gj:+d}"
         )
         if score_gj >= gbj_model["threshold"] and dir_gj != 0:
-            sl_gj, tp_gj = calc_sl_tp(gbj, dir_gj, config)
+            lot_gj = round(lot_base * 0.7, 2)
+            sl_gj, tp_gj = calc_sl_tp(gbj, dir_gj, config, lot=lot_gj)
             if sl_gj > 0:
-                lot_gj = round(lot_base * 0.7, 2)
-                ok_gj  = send_order(gbj, dir_gj, lot_gj, sl_gj, tp_gj, "V104-BOOST")
+                ok_gj = send_order(gbj, dir_gj, lot_gj, sl_gj, tp_gj, "V104-BOOST")
                 if ok_gj:
                     trades_executed.append((gbj, "BUY" if dir_gj==1 else "SELL", lot_gj))
                     if not signal:
@@ -894,6 +1122,7 @@ def main():
             try:
                 config = load_config()  # reload setiap cycle, perubahan JSON langsung efektif
                 scan_closed_trades(memory, config)
+                manage_trailing_stops(config)          # ← trailing stop setiap cycle
                 trades, signal, reason = trade_engine(config, memory)
                 save_memory(memory)
                 balance, dd = get_account_state()
