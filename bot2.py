@@ -429,46 +429,78 @@ def score_market(symbol: str, config: dict) -> tuple[int, int]:
     Score pasar untuk `symbol`. Return (score, direction).
     direction: +1 = BUY, -1 = SELL, 0 = no bias.
 
-    Breakdown (max 75):
+    Breakdown standar (max 75):
       BOS detected    : +20
       Candle confirm  : +15
       ATR in range    : +15
       Spread OK       : +10
       EMA align       : +15
 
-    CATATAN: threshold default di config harus ≤ 75.
-    Kalau pakai threshold=90, bot tidak akan pernah trade.
-    Rekomendasi: set threshold 50–65 untuk live trading.
+    Khusus XAUUSD — Multi-Timeframe BOS:
+      H1 BOS  : +20 (seperti biasa)
+      M15 BOS : +10 bonus (konfirmasi lebih cepat)
+      → max score XAUUSD bisa 85 jika kedua BOS selaras
+      → jika H1 BOS=0 tapi M15 BOS ada, direction dari M15 (+10)
+        sehingga candle/EMA masih bisa dihitung → score bisa 50+
     """
     sc   = config["scoring"]
     filt = config["filters"]
 
-    # Gunakan resolved symbol dari cache kalau ada
     resolved = _symbol_cache.get(symbol, symbol)
 
-    rates = get_rates(symbol)
-    if rates is None:
+    # ── Ambil data H1 (semua symbol) ──
+    rates_h1 = get_rates(symbol, timeframe=mt5.TIMEFRAME_H1)
+    if rates_h1 is None:
         return 0, 0
 
     score     = 0
     direction = 0
+    bos_m15   = 0
 
-    # BOS
-    bos = detect_bos(rates)
-    if bos != 0:
-        score    += sc["bos"]
-        direction = bos
+    # ── BOS H1 ──
+    bos_h1 = detect_bos(rates_h1)
 
-    # Candle confirmation
-    candle = detect_candle_direction(rates)
+    # ── Multi-Timeframe BOS khusus XAUUSD ──
+    mtf_symbols  = config.get("mtf_bos", {}).get("symbols", ["XAUUSD"])
+    mtf_bonus    = config.get("mtf_bos", {}).get("m15_bonus", 10)
+    use_mtf      = symbol in mtf_symbols or symbol.replace("m", "").replace(".s", "") in mtf_symbols
+
+    if use_mtf:
+        rates_m15 = get_rates(symbol, timeframe=mt5.TIMEFRAME_M15, count=60)
+        if rates_m15 is not None:
+            bos_m15 = detect_bos(rates_m15, lookback=10)
+
+        if bos_h1 != 0:
+            # H1 BOS ada → poin penuh, M15 bonus jika searah
+            score    += sc["bos"]
+            direction = bos_h1
+            if bos_m15 == bos_h1:
+                score += mtf_bonus   # kedua TF konfirmasi → bonus
+                v104_log(f"{symbol} MTF BOS konfirmasi H1+M15 dir={direction:+d} +{mtf_bonus}pts bonus")
+        elif bos_m15 != 0:
+            # H1 BOS tidak ada, tapi M15 BOS ada → pakai M15 dengan poin lebih kecil
+            score    += mtf_bonus
+            direction = bos_m15
+            v104_log(f"{symbol} M15 BOS saja dir={direction:+d} +{mtf_bonus}pts (H1 flat)")
+        # bos untuk log tetap pakai h1
+        bos = bos_h1
+    else:
+        # Symbol lain tetap H1 saja
+        bos = bos_h1
+        if bos != 0:
+            score    += sc["bos"]
+            direction = bos
+
+    # ── Candle confirmation (H1) ──
+    candle = detect_candle_direction(rates_h1)
     if candle != 0 and candle == direction:
         score += sc["candle"]
     elif candle != 0 and direction == 0:
         direction = candle
         score += sc["candle"]
 
-    # ATR filter
-    atr  = calc_atr(rates)
+    # ── ATR filter (H1) ──
+    atr  = calc_atr(rates_h1)
     info = mt5.symbol_info(resolved)
     if info:
         atr_pips = atr / info.point / 10
@@ -477,7 +509,7 @@ def score_market(symbol: str, config: dict) -> tuple[int, int]:
         if atr_min < atr_pips < atr_max:
             score += sc["atr"]
 
-    # Spread filter — support per-pair limit atau single value
+    # ── Spread filter ──
     spread     = get_spread_points(resolved)
     max_spread = filt.get("max_spread", 50)
     if isinstance(max_spread, dict):
@@ -488,8 +520,8 @@ def score_market(symbol: str, config: dict) -> tuple[int, int]:
     if spread < limit:
         score += sc["spread"]
 
-    # EMA trend alignment
-    closes   = rates["close"].astype(float)
+    # ── EMA trend alignment (H1) ──
+    closes   = rates_h1["close"].astype(float)
     ema20    = calc_ema(closes, 20)
     ema50    = calc_ema(closes, 50)
     ema_bias = 1 if ema20[-1] > ema50[-1] else -1
@@ -497,9 +529,9 @@ def score_market(symbol: str, config: dict) -> tuple[int, int]:
         score += sc.get("ema_align", sc.get("session", 15))
 
     log.info(
-        "%s | score=%d/75 dir=%+d | bos=%+d candle=%+d "
+        "%s | score=%d dir=%+d | bos_h1=%+d bos_m15=%+d candle=%+d "
         "atr_pips=%.1f spread=%.0f ema_bias=%+d",
-        symbol, score, direction, bos, candle,
+        symbol, score, direction, bos, bos_m15, candle,
         atr / (info.point * 10) if info else 0,
         spread, ema_bias,
     )
@@ -613,9 +645,9 @@ def calc_sl_tp(
     else:
         tp_dist = tp_dist_atr
 
-    # Pastikan R:R minimal 3:1
-    if tp_dist < sl_dist * 3.0:
-        tp_dist = sl_dist * 3.0
+    # Pastikan R:R minimal 2:1
+    if tp_dist < sl_dist * 2.0:
+        tp_dist = sl_dist * 2.0
 
     if direction == 1:
         sl = price - sl_dist

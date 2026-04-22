@@ -42,11 +42,11 @@
     "atr_multiplier_sl": 1.5,
     "atr_multiplier_tp": 2.5,
     "dollar_caps": {
-      "XAUUSD": { "sl_usd": 25.0,  "tp_usd": 125.0 },
-      "GBPJPY": { "sl_usd": 20.0,  "tp_usd":  80.0 },
-      "USDJPY": { "sl_usd": 15.0,  "tp_usd":  60.0 },
-      "EURUSD": { "sl_usd": 15.0,  "tp_usd":  60.0 },
-      "GBPUSD": { "sl_usd": 15.0,  "tp_usd":  60.0 }
+      "XAUUSD": { "sl_usd": 25.0,  "tp_usd":  50.0 },
+      "GBPJPY": { "sl_usd": 10.0,  "tp_usd":  40.0 },
+      "USDJPY": { "sl_usd": 5.0,  "tp_usd":  30.0 },
+      "EURUSD": { "sl_usd": 5.0,  "tp_usd":  30.0 },
+      "GBPUSD": { "sl_usd": 5.0,  "tp_usd":  30.0 }
     }
   },
 
@@ -54,6 +54,11 @@
     "enabled": true,
     "trigger_rr": 0.5,
     "atr_mult": 1.0
+  },
+
+  "mtf_bos": {
+    "symbols": ["XAUUSD"],
+    "m15_bonus": 10
   },
 
   "logic": {
